@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>菩薩戒分班系統 · 寶嚴山寶嚴禪寺</title>
+<link rel="stylesheet" href="style.css?v=20261017h">
+</head>
+<body>
+
+<!-- ===================== 登入 ===================== -->
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <h1 class="gate-title">菩薩戒分班系統</h1>
+    <p class="gate-sub" id="gateSub">寶嚴山寶嚴禪寺</p>
+    <label class="field">
+      <span>經手人（您的稱呼）</span>
+      <input id="gateBy" type="text" autocomplete="off" placeholder="例：知客組 某某">
+    </label>
+    <label class="field">
+      <span>密碼</span>
+      <input id="gatePw" type="password" autocomplete="off" placeholder="請輸入密碼">
+    </label>
+    <button id="gateBtn" class="btn primary wide">進入系統</button>
+    <p id="gateMsg" class="gate-msg"></p>
+    <p class="gate-note">工作人員密碼可分班；訪客密碼只能查看與列印。</p>
+  </div>
+</div>
+
+<!-- ===================== 主畫面 ===================== -->
+<div id="app" class="app" hidden>
+
+  <header class="top">
+    <div class="top-left">
+      <h1 id="appTitle">菩薩戒分班系統</h1>
+      <span id="appSub" class="muted"></span>
+    </div>
+    <div class="top-right">
+      <span id="whoami" class="who"></span>
+      <button id="btnReload" class="btn ghost" title="重新向試算表拿一次最新名單">重新整理</button>
+      <button id="btnLogout" class="btn ghost">登出</button>
+    </div>
+  </header>
+
+  <nav class="tabs no-print">
+    <button class="tab on" data-view="assign">分班作業</button>
+    <button class="tab" data-view="print">列印</button>
+    <button class="tab" data-view="settings">設定</button>
+  </nav>
+
+  <!-- ---------- 分班作業 ---------- -->
+  <section id="viewAssign" class="view">
+
+    <div class="vowbar no-print">
+      <span class="vowlabel">目前作業對象</span>
+      <div class="vowpick" id="vowPick">
+        <button class="vowbtn on" data-vow="菩薩戒">菩薩戒</button>
+        <button class="vowbtn" data-vow="三皈五戒">三皈五戒</button>
+        <button class="vowbtn" data-vow="">兩者都看</button>
+      </div>
+      <span class="muted small">分班的 14 個班別是給菩薩戒戒子用的；三皈五戒這邊預設只是讓您查名單。</span>
+    </div>
+
+    <div class="statbar">
+      <div class="stat"><b id="stTotal">0</b><span id="lbTotal">報名人數</span></div>
+      <div class="stat"><b id="stDone">0</b><span>已分班</span></div>
+      <div class="stat warn"><b id="stTodo">0</b><span>未分班</span></div>
+      <div class="stat"><b id="stMale">0</b><span>男眾</span></div>
+      <div class="stat"><b id="stFemale">0</b><span>女眾</span></div>
+      <div class="stat mute"><b id="stOut">0</b><span>排除</span></div>
+      <div class="stat mute"><b id="stAll">0</b><span>全部報名（含另一戒）</span></div>
+    </div>
+
+    <div id="warnBox" class="warnbox" hidden></div>
+
+    <div class="board no-print">
+      <div class="board-row">
+        <span class="board-tag east">東</span>
+        <div id="boardEast" class="board-cells"></div>
+      </div>
+      <div class="board-row">
+        <span class="board-tag west">西</span>
+        <div id="boardWest" class="board-cells"></div>
+      </div>
+      <div class="board-row">
+        <span class="board-tag plain">其他</span>
+        <div id="boardOther" class="board-cells"></div>
+      </div>
+    </div>
+
+    <div class="toolbar no-print">
+      <input id="q" class="search" type="search" placeholder="搜尋姓名、法名、電話、分院…" autocomplete="off">
+      <select id="fSrc"><option value="">來源：全部</option><option value="線上">線上</option><option value="紙本">紙本</option></select>
+      <select id="fSex"><option value="">性別：全部</option><option value="M">男眾</option><option value="F">女眾</option></select>
+      <select id="fCls"><option value="">班別：全部</option><option value="__none">未分班</option></select>
+      <select id="fWarn"><option value="">警示：全部</option><option value="fm">法名重複</option><option value="dup">疑似重複報名</option><option value="both">兩戒都受</option><option value="data">資料待確認</option></select>
+      <select id="sort">
+        <option value="src">排序：來源＋流水號</option>
+        <option value="age">年齡（小→大）</option>
+        <option value="ageD">年齡（大→小）</option>
+        <option value="fm">法名</option>
+        <option value="name">姓名</option>
+        <option value="cls">班別</option>
+      </select>
+      <button id="btnClearF" class="btn ghost">清除條件</button>
+    </div>
+
+    <div class="bulkbar no-print" id="bulkbar" hidden>
+      已勾選 <b id="bulkN">0</b> 人 →
+      <select id="bulkCls"></select>
+      <button id="btnBulk" class="btn">指定班別</button>
+      <button id="btnBulkClear" class="btn ghost">取消勾選</button>
+    </div>
+
+    <div class="tablewrap">
+      <table class="list">
+        <thead>
+          <tr>
+            <th class="c-chk no-print"><input id="chkAll" type="checkbox" title="全選目前列表"></th>
+            <th class="c-no">#</th>
+            <th class="c-name">姓名</th>
+            <th class="c-fm">法名</th>
+            <th class="c-vow">戒別</th>
+            <th class="c-sex">性別</th>
+            <th class="c-age">年齡</th>
+            <th class="c-cls">班別</th>
+            <th class="c-pnote no-print">分班備註</th>
+            <th class="c-dob">生日</th>
+            <th class="c-src">來源</th>
+            <th class="c-from">分院／皈依師長</th>
+            <th class="c-phone">電話</th>
+            <th class="c-note">備註</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <p id="empty" class="empty" hidden>沒有符合條件的人。</p>
+    </div>
+
+    <div class="savebar no-print" id="savebar">
+      <span id="saveHint" class="muted">尚無未儲存的變更</span>
+      <button id="btnSave" class="btn primary" disabled>儲存分班</button>
+      <button id="btnRevert" class="btn ghost" disabled>還原未存變更</button>
+    </div>
+  </section>
+
+  <!-- ---------- 列印 ---------- -->
+  <section id="viewPrint" class="view" hidden>
+    <div class="printpick no-print">
+      <h2>要印什麼？</h2>
+      <div class="pickgrid">
+        <button class="pick" data-print="board">
+          <b>分班總表</b><span>14 班並列，一張紙看完誰在哪班</span>
+        </button>
+        <button class="pick" data-print="rosters">
+          <b>各班名冊</b><span>每班一頁，含簽名欄，給各班導引法師</span>
+        </button>
+        <button class="pick" data-print="todo">
+          <b>未分班名單</b><span>還沒分到班的人</span>
+        </button>
+        <button class="pick" data-print="all">
+          <b>全體名冊</b><span>全部戒子一覽，含班別</span>
+        </button>
+      </div>
+      <div class="pickopts">
+        <label><input type="checkbox" id="optPhone"> 名冊印出電話</label>
+        <label><input type="checkbox" id="optSign" checked> 名冊留簽名欄</label>
+        <button id="btnDoPrint" class="btn primary" disabled>預覽並列印</button>
+        <button id="btnCsv" class="btn ghost">下載分班結果 CSV</button>
+      </div>
+      <p class="muted small">提示：列印對話框中請選「橫向」，並把「背景圖形」打開，框線才會印出來。</p>
+    </div>
+    <div id="printArea" class="printarea"></div>
+  </section>
+
+  <!-- ---------- 設定 ---------- -->
+  <section id="viewSettings" class="view" hidden>
+    <div class="card">
+      <h2>系統設定</h2>
+      <p class="muted small">這些設定存在後端試算表「設定」分頁，改了所有人都會看到。</p>
+      <label class="field"><span>戒會名稱</span><input id="setTitle" type="text" autocomplete="off"></label>
+      <label class="field"><span>班別清單（逗號分隔，順序就是顯示順序）</span>
+        <input id="setClasses" type="text" autocomplete="off"></label>
+      <label class="field"><span>工作人員密碼</span><input id="setPw" type="text" autocomplete="off"></label>
+      <label class="field"><span>訪客密碼（只能看）</span><input id="setGuestPw" type="text" autocomplete="off"></label>
+      <button id="btnSaveSet" class="btn primary">儲存設定</button>
+    </div>
+    <div class="card">
+      <h2>後端網址</h2>
+      <p class="muted small">只存在這台瀏覽器，不影響別人。重新部署 Apps Script 後可在這裡暫時改。</p>
+      <label class="field"><span>Web App /exec 網址</span><input id="setBackend" type="text" autocomplete="off"></label>
+      <button id="btnSaveBackend" class="btn">記住網址</button>
+      <button id="btnPing" class="btn ghost">測試連線</button>
+      <span id="pingMsg" class="muted"></span>
+    </div>
+    <div class="card">
+      <h2>資料來源</h2>
+      <p class="muted small" id="srcInfo">—</p>
+    </div>
+  </section>
+
+  <div id="toast"></div>
+</div>
+
+<script src="config.js?v=20261017h"></script>
+<script src="app.js?v=20261017h"></script>
+</body>
+</html>
