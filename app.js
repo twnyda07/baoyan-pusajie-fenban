@@ -3,7 +3,7 @@
 (function () {
 'use strict';
 
-var BUILD = '20261017h';
+var BUILD = '20261017j';
 
 /* ===================== 基礎 ===================== */
 var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -337,13 +337,52 @@ function noteOf(key) {
   if (key in state.pending) return state.pending[key].note;
   return (state.assigns[key] && state.assigns[key].note) || '';
 }
-function setPending(key, cls, note) {
-  var a = state.assigns[key] || {};
-  if (cls === (a.cls || '') && note === (a.note || '')) delete state.pending[key];
-  else state.pending[key] = { cls: cls, note: note };
+function headOf(key) {
+  if (key in state.pending) return !!state.pending[key].head;
+  return !!(state.assigns[key] && state.assigns[key].head);
 }
-function setCls(key, cls) { setPending(key, cls, noteOf(key)); }
-function setNote(key, note) { setPending(key, clsOf(key), note); }
+function setPending(key, cls, note, head) {
+  var a = state.assigns[key] || {};
+  if (cls === (a.cls || '') && note === (a.note || '') && !!head === !!a.head) delete state.pending[key];
+  else state.pending[key] = { cls: cls, note: note, head: !!head };
+}
+function setNote(key, note) { setPending(key, clsOf(key), note, headOf(key)); }
+
+/** 換班就把班首身分拿掉：留著會變成新班有兩個班首，不如講清楚讓人重選 */
+function setCls(key, cls) {
+  var wasHead = headOf(key), from = clsOf(key);
+  setPending(key, cls, noteOf(key), cls === from ? wasHead : false);
+  return wasHead && cls !== from ? from : '';
+}
+
+/** 指定班首：同一個戒別的同一個班只能有一位，舊的自動取消 */
+function setHead(key, on) {
+  var me = byKey(key);
+  if (!me) return;
+  var cls = clsOf(key);
+  if (on && (!cls || cls === EXCLUDE)) { toast('要先分到班，才能設班首', true); return; }
+  if (on) {
+    state.people.forEach(function (p) {
+      if (p.key === key || p.vow !== me.vow || clsOf(p.key) !== cls) return;
+      if (headOf(p.key)) setPending(p.key, clsOf(p.key), noteOf(p.key), false);
+    });
+  }
+  setPending(key, cls, noteOf(key), on);
+}
+
+function byKey(key) {
+  for (var i = 0; i < state.people.length; i++) if (state.people[i].key === key) return state.people[i];
+  return null;
+}
+
+/** 某一班（限目前戒別）的班首是誰 */
+function headOfClass(cls) {
+  var list = scoped();
+  for (var i = 0; i < list.length; i++) {
+    if (clsOf(list[i].key) === cls && headOf(list[i].key)) return list[i];
+  }
+  return null;
+}
 function dirtyCount() { return Object.keys(state.pending).length; }
 
 var EXCLUDE = '✕ 排除';
@@ -423,10 +462,13 @@ function renderBoard() {
   var cur = $('#fCls').value;
   function cellHtml(c, side) {
     var k = cnt[c] || { n: 0, M: 0, F: 0 };
+    var h = c === EXCLUDE ? null : headOfClass(c);
     return '<button class="cell ' + side + (k.n ? '' : ' zero') + (cur === c ? ' on' : '') + '" data-cls="' + esc(c) + '">' +
       '<span class="cname">' + esc(c) + '</span>' +
       '<span class="cnum">' + k.n + '</span>' +
-      '<span class="cmix">男 ' + k.M + '／女 ' + k.F + '</span></button>';
+      '<span class="cmix">男 ' + k.M + '／女 ' + k.F + '</span>' +
+      (k.n ? '<span class="chead' + (h ? '' : ' none') + '">' + (h ? '★ ' + esc(h.fm || h.name) : '未設班首') + '</span>' : '') +
+      '</button>';
   }
   var east = [], west = [], other = [];
   allClasses().forEach(function (c) {
@@ -538,16 +580,35 @@ function visiblePeople() {
 
 var checked = {};
 
+/** 下拉的每個班別後面要帶當下人數；data-c 記著班名，之後只換文字不重畫整張表 */
+function optHtml(value, base, cur, countKey) {
+  return '<option value="' + esc(value) + '"' + (value === cur ? ' selected' : '') +
+    ' data-c="' + esc(countKey == null ? value : countKey) + '" data-base="' + esc(base) + '">' +
+    esc(base) + '</option>';
+}
+
 function clsSelectHtml(key, cur) {
-  var opts = ['<option value="">— 未分班 —</option>'];
+  var opts = [optHtml('', '— 未分班 —', cur, '__none')];
   var list = allClasses();
   // 目前的班別若已不在清單裡（清單改過），還是要列出來，否則下拉會顯示成「未分班」騙人
   if (cur && cur !== EXCLUDE && list.indexOf(cur) < 0) list = list.concat([cur]);
-  list.forEach(function (c) {
-    opts.push('<option value="' + esc(c) + '"' + (c === cur ? ' selected' : '') + '>' + esc(c) + '</option>');
-  });
-  opts.push('<option value="' + esc(EXCLUDE) + '"' + (cur === EXCLUDE ? ' selected' : '') + '>' + esc(EXCLUDE) + '</option>');
+  list.forEach(function (c) { opts.push(optHtml(c, c, cur)); });
+  opts.push(optHtml(EXCLUDE, EXCLUDE, cur));
   return '<select class="clsSel" data-key="' + esc(key) + '"' + (isGuest() ? ' disabled' : '') + '>' + opts.join('') + '</select>';
+}
+
+/** 把所有班別下拉的文字換成「東1（4）」。只動文字，不重畫表格，游標與捲動位置都不會跑掉。 */
+function refreshClassLabels() {
+  var cnt = countByClass();
+  var none = scoped().filter(function (p) { return !clsOf(p.key); }).length;
+  $$('select.clsSel, #bulkCls, #fCls').forEach(function (sel) {
+    Array.prototype.forEach.call(sel.options, function (o) {
+      var c = o.getAttribute('data-c'), base = o.getAttribute('data-base');
+      if (c == null || base == null) return;
+      var n = c === '__none' ? none : (cnt[c] ? cnt[c].n : 0);
+      o.textContent = base + '（' + n + '）';
+    });
+  });
 }
 
 function renderTable() {
@@ -570,6 +631,9 @@ function renderTable() {
       '<td class="c-sex">' + (p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '—') + '</td>' +
       '<td class="c-age">' + (p.age == null ? '—' : p.age) + '</td>' +
       '<td class="c-cls">' + clsSelectHtml(p.key, cur) + '</td>' +
+      '<td class="c-head no-print"><button class="headBtn' + (headOf(p.key) ? ' on' : '') + '"' +
+        ' data-key="' + esc(p.key) + '"' + (isGuest() ? ' disabled' : '') +
+        ' title="' + (headOf(p.key) ? '取消班首' : '設為這一班的班首') + '">★</button></td>' +
       '<td class="c-pnote no-print"><input class="noteIn" type="text" autocomplete="off" placeholder="分班備註"' +
         ' data-key="' + esc(p.key) + '" value="' + esc(noteOf(p.key)) + '"' + (isGuest() ? ' disabled' : '') + '></td>' +
       '<td class="c-dob">' + esc(p.dobRaw || '—') + '</td>' +
@@ -580,6 +644,7 @@ function renderTable() {
       '</tr>';
   }).join('');
   $('#tbody').innerHTML = rows;
+  refreshClassLabels();
   $('#empty').hidden = list.length > 0;
   $('#chkAll').checked = list.length > 0 && list.every(function (p) { return checked[p.key]; });
   renderBulk();
@@ -614,13 +679,13 @@ function renderAll() {
 
 function fillClassSelects() {
   var cs = allClasses().concat(extraClasses());
-  var f = $('#fCls');
-  f.innerHTML = '<option value="">班別：全部</option><option value="__none">未分班</option>' +
-    cs.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
-    '<option value="' + esc(EXCLUDE) + '">' + esc(EXCLUDE) + '</option>';
-  $('#bulkCls').innerHTML = '<option value="">— 未分班 —</option>' +
-    cs.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
-    '<option value="' + esc(EXCLUDE) + '">' + esc(EXCLUDE) + '</option>';
+  var keep = $('#fCls').value;
+  $('#fCls').innerHTML = '<option value="">班別：全部</option>' + optHtml('__none', '未分班', '') +
+    cs.map(function (c) { return optHtml(c, c, ''); }).join('') + optHtml(EXCLUDE, EXCLUDE, '');
+  if (keep) $('#fCls').value = keep;
+  $('#bulkCls').innerHTML = optHtml('', '— 未分班 —', '', '__none') +
+    cs.map(function (c) { return optHtml(c, c, ''); }).join('') + optHtml(EXCLUDE, EXCLUDE, '');
+  refreshClassLabels();
 }
 
 /* ===================== 儲存 ===================== */
@@ -632,7 +697,7 @@ function save() {
   var items = keys.map(function (k) {
     var p = byKey[k] || {};
     return { key: k, vow: p.vow || '', src: p.src || '', seq: p.seq || '', name: p.name || '', fm: p.fm || '',
-             cls: state.pending[k].cls, note: state.pending[k].note || '' };
+             cls: state.pending[k].cls, head: !!state.pending[k].head, note: state.pending[k].note || '' };
   });
   $('#btnSave').disabled = true;
   $('#btnSave').textContent = '儲存中…';
@@ -640,7 +705,7 @@ function save() {
     items.forEach(function (it) {
       if (!it.cls && !it.note) delete state.assigns[it.key];
       else state.assigns[it.key] = { key: it.key, vow: it.vow, src: it.src, seq: it.seq, name: it.name, fm: it.fm,
-                                     cls: it.cls, note: it.note, at: d.at, by: operator };
+                                     cls: it.cls, head: it.head, note: it.note, at: d.at, by: operator };
     });
     state.pending = {};
     renderAll();
@@ -671,8 +736,11 @@ function assignedList() {
       byCls[c].push(p);
     }
   });
+  // 班首排第一，其餘男眾在前、再依法名
   var sorter = function (a, b) {
-    return (a.sex === b.sex ? 0 : a.sex === 'M' ? -1 : 1) ||
+    var ha = headOf(a.key) ? 0 : 1, hb = headOf(b.key) ? 0 : 1;
+    return ha - hb ||
+      (a.sex === b.sex ? 0 : a.sex === 'M' ? -1 : 1) ||
       String(a.fm).localeCompare(String(b.fm), 'zh-Hant');
   };
   Object.keys(byCls).forEach(function (c) { byCls[c].sort(sorter); });
@@ -693,7 +761,8 @@ function rosterTable(list, opts) {
     '<th class="ctr">性別</th><th class="ctr">年齡</th><th>分院／皈依師長</th>' +
     (showPhone ? '<th>電話</th>' : '') + '<th>備註</th>' + (sign ? '<th class="sig">簽到</th>' : '') + '</tr></thead><tbody>';
   list.forEach(function (p, i) {
-    h += '<tr><td class="ctr">' + (i + 1) + '</td><td>' + esc(p.fm || '—') + '</td><td>' + esc(p.name) + '</td>' +
+    h += '<tr' + (headOf(p.key) ? ' class="isHead"' : '') + '><td class="ctr">' + (i + 1) +
+      (headOf(p.key) ? ' ★' : '') + '</td><td>' + esc(p.fm || '—') + '</td><td>' + esc(p.name) + '</td>' +
       '<td class="ctr">' + (p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '—') + '</td>' +
       '<td class="ctr">' + (p.age == null ? '—' : p.age) + '</td>' +
       '<td>' + esc(p.from || '') + '</td>' +
@@ -716,9 +785,12 @@ function buildPrint(kind) {
     function grid(cs) {
       return '<div class="boardgrid">' + cs.map(function (c) {
         var l = A.byCls[c] || [];
-        return '<div class="boardcol"><h3>' + esc(c) + '（' + l.length + '）</h3><ol>' +
-          l.map(function (p) { return '<li>' + esc(p.fm || '—') + ' ' + esc(p.name) + '</li>'; }).join('') +
-          '</ol></div>';
+        var hd = headOfClass(c);
+        return '<div class="boardcol"><h3>' + esc(c) + '（' + l.length + '）</h3>' +
+          '<p class="colhead">班首：' + (hd ? esc(hd.fm || hd.name) : '—') + '</p><ol>' +
+          l.map(function (p) {
+            return '<li>' + (headOf(p.key) ? '★' : '') + esc(p.fm || '—') + ' ' + esc(p.name) + '</li>';
+          }).join('') + '</ol></div>';
       }).join('') + '</div>';
     }
     html = '<div class="sheet"><h2>分班總表</h2><p class="sheetsub">' + headLine() +
@@ -735,8 +807,11 @@ function buildPrint(kind) {
       if (!l.length) return;
       any = true;
       var m = l.filter(function (p) { return p.sex === 'M'; }).length;
+      var hd = headOfClass(c);
       html += '<div class="sheet"><h2>' + esc(c) + '　戒子名冊</h2>' +
-        '<p class="sheetsub">' + headLine() + '　本班 ' + l.length + ' 人（男 ' + m + '／女 ' + (l.length - m) + '）　導引法師：＿＿＿＿＿</p>' +
+        '<p class="sheetsub">' + headLine() + '　本班 ' + l.length + ' 人（男 ' + m + '／女 ' + (l.length - m) + '）' +
+        '　班首：' + (hd ? esc((hd.fm ? hd.fm + ' ' : '') + hd.name) : '＿＿＿＿＿') +
+        '　導引法師：＿＿＿＿＿</p>' +
         rosterTable(l, opts) + '</div>';
     });
     if (!any) html = '<div class="sheet"><h2>各班名冊</h2><p class="sheetsub">目前還沒有人分到班。</p></div>';
@@ -748,13 +823,16 @@ function buildPrint(kind) {
     var all = scoped().slice().sort(function (a, b) {
       var ia = ci.indexOf(clsOf(a.key)), ib = ci.indexOf(clsOf(b.key));
       if (ia < 0) ia = 99; if (ib < 0) ib = 99;
-      return ia - ib || String(a.fm).localeCompare(String(b.fm), 'zh-Hant');
+      // 同一班裡班首排最前面，跟各班名冊一致
+      return ia - ib || (headOf(a.key) ? 0 : 1) - (headOf(b.key) ? 0 : 1) ||
+        String(a.fm).localeCompare(String(b.fm), 'zh-Hant');
     });
     var h = '<table class="pr"><thead><tr><th class="ctr">#</th><th class="ctr">班別</th><th>法名</th><th>姓名</th>' +
       '<th class="ctr">戒別</th><th class="ctr">性別</th><th class="ctr">年齡</th><th class="ctr">來源</th><th>分院／皈依師長</th>' +
       (opts.phone ? '<th>電話</th>' : '') + '<th>備註</th></tr></thead><tbody>';
     all.forEach(function (p, i) {
-      h += '<tr><td class="ctr">' + (i + 1) + '</td><td class="ctr">' + esc(clsOf(p.key) || '未分班') + '</td>' +
+      h += '<tr' + (headOf(p.key) ? ' class="isHead"' : '') + '><td class="ctr">' + (i + 1) + '</td>' +
+        '<td class="ctr">' + esc(clsOf(p.key) || '未分班') + (headOf(p.key) ? ' ★班首' : '') + '</td>' +
         '<td>' + esc(p.fm || '—') + '</td><td>' + esc(p.name) + '</td>' +
         '<td class="ctr">' + esc(p.vow + (p.items ? '（' + p.items + '）' : '')) + '</td>' +
         '<td class="ctr">' + (p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '—') + '</td>' +
@@ -770,7 +848,7 @@ function buildPrint(kind) {
 }
 
 function csvDump() {
-  var rows = [['班別', '座號', '法名', '姓名', '戒別', '受戒項目', '性別', '年齡', '生日', '來源', '流水號', '分院／皈依師長', '電話', '分班備註', '報名表備註', '警示']];
+  var rows = [['班別', '座號', '班首', '法名', '姓名', '戒別', '受戒項目', '性別', '年齡', '生日', '來源', '流水號', '分院／皈依師長', '電話', '分班備註', '報名表備註', '警示']];
   var A = assignedList();
   A.order.forEach(function (c) {
     (A.byCls[c] || []).forEach(function (p, i) { rows.push(line(p, c, i + 1)); });
@@ -778,7 +856,7 @@ function csvDump() {
   A.out.forEach(function (p, i) { rows.push(line(p, EXCLUDE, i + 1)); });
   A.none.forEach(function (p, i) { rows.push(line(p, '未分班', i + 1)); });
   function line(p, c, i) {
-    return [c, i, p.fm, p.name, p.vow, p.items, p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '', p.age == null ? '' : p.age,
+    return [c, i, headOf(p.key) ? '★ 班首' : '', p.fm, p.name, p.vow, p.items, p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '', p.age == null ? '' : p.age,
             p.dobRaw, p.src, p.seq, p.from, p.phone, noteOf(p.key), p.note,
             [p.wBoth ? '兩戒都受' : '', p.wDup ? '疑似重複報名' : '', p.wFm ? '法名重複' : '', p.wData].filter(Boolean).join('；')];
   }
@@ -866,10 +944,19 @@ function bind() {
     var sel = e.target.closest('.clsSel');
     if (sel) {
       if (isGuest()) { toast('訪客只能查看', true); renderTable(); return; }
-      setCls(sel.getAttribute('data-key'), sel.value);
-      renderStats(); renderBoard(); renderSave();
+      var k = sel.getAttribute('data-key');
+      var lostHead = setCls(k, sel.value);
+      renderStats(); renderBoard(); renderSave(); refreshClassLabels();
       var tr = sel.closest('tr');
-      if (tr) tr.classList.toggle('dirty', sel.getAttribute('data-key') in state.pending);
+      if (tr) {
+        tr.classList.toggle('dirty', k in state.pending);
+        var hb = tr.querySelector('.headBtn');
+        if (hb) hb.classList.toggle('on', headOf(k));
+      }
+      if (lostHead) {
+        var who = byKey(k);
+        toast((who ? who.name : '這位') + '原本是' + lostHead + '班首，換班後已取消，請重新指定');
+      }
       return;
     }
     var ni = e.target.closest('.noteIn');
@@ -889,6 +976,16 @@ function bind() {
       var list = visiblePeople();
       $('#chkAll').checked = list.length > 0 && list.every(function (p) { return checked[p.key]; });
     }
+  });
+
+  // 班首：同班只能一位，所以按下去要整張表重畫（舊的那位要跟著變回來）
+  on('#tbody', 'click', function (e) {
+    var b = e.target.closest('.headBtn');
+    if (!b) return;
+    if (isGuest()) { toast('訪客只能查看', true); return; }
+    var k = b.getAttribute('data-key');
+    setHead(k, !headOf(k));
+    renderTable(); renderBoard(); renderSave();
   });
 
   on('#chkAll', 'change', function () {

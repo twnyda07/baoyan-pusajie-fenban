@@ -113,6 +113,8 @@ select{width:auto; min-width:7em}
 .cell .cname{display:block; font-weight:700; font-size:16px}
 .cell .cnum{display:block; font-size:22px; line-height:1.15}
 .cell .cmix{display:block; font-size:12px; color:var(--ink-2)}
+.cell .chead{display:block; font-size:12px; color:#8a6d1f; margin-top:.15em}
+.cell .chead.none{color:var(--line-2)}
 .cell.east .cname{color:var(--east)}
 .cell.west .cname{color:var(--west)}
 .cell.zero .cnum{color:var(--line-2)}
@@ -132,7 +134,13 @@ table.list tr.off td{opacity:.5}
 table.list td.c-name{font-weight:700}
 table.list td.c-fm{font-weight:700; letter-spacing:.06em}
 td.c-note{white-space:normal; max-width:18em; font-size:14px; color:var(--ink-2)}
-td.c-cls select{min-width:8.5em}
+td.c-cls select{min-width:10.5em}
+td.c-head{text-align:center}
+.headBtn{font:inherit; font-size:19px; line-height:1; padding:.15em .4em; border-radius:7px; cursor:pointer;
+  border:1px solid var(--line); background:var(--card); color:var(--line-2)}
+.headBtn:hover{background:#f6f1e9; color:var(--ink-2)}
+.headBtn.on{color:#b8860b; border-color:#e0c074; background:#fdf6e4}
+.headBtn:disabled{cursor:not-allowed; opacity:.4}
 td.c-pnote input{width:10em; font-size:14px; padding:.3em .45em}
 th.c-pnote{min-width:10em}
 tr.dirty{background:#fdf8ea}
@@ -186,6 +194,8 @@ table.pr .ctr{text-align:center}
 .boardcol h3{margin:0; font-size:14px; text-align:center; background:#eee; padding:.3em; border-bottom:1px solid #999}
 .boardcol ol{margin:0; padding:.3em .3em .3em 2em; font-size:13px; min-height:9em}
 .boardcol li{margin:.05em 0}
+.boardcol .colhead{margin:0; padding:.2em .3em; font-size:12px; text-align:center; border-bottom:1px solid #ccc; background:#f7f7f7}
+table.pr tr.isHead td{font-weight:700; background:#faf4e3}
 
 /* ---------- toast ---------- */
 #toast{
@@ -208,4 +218,6 @@ table.pr .ctr{text-align:center}
   table.pr{font-size:12px}
   table.pr th,table.pr td{border:1px solid #000}
   table.pr th{background:#e8e8e8 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+  table.pr tr.isHead td{background:#f0ead8 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+  .boardcol .colhead{background:#f2f2f2 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
 }
