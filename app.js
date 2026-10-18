@@ -3,7 +3,7 @@
 (function () {
 'use strict';
 
-var BUILD = '20261018d';
+var BUILD = '20261018g';
 
 /* ===================== 基礎 ===================== */
 var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -44,6 +44,9 @@ var state = {
   warn: { fmDup: [], personDup: [], bothVow: [], dataBad: [] },
   srcStat: [],
   srcInfo: '',
+  rev: 0,              // 後端版本號，用來發現別人改過東西
+  online: [],          // 目前還有誰在線上
+  conflicts: [],       // 上次儲存時因他人同時修改而沒套用的
 };
 var pw = '';
 var operator = '';
@@ -52,6 +55,39 @@ var loadingPromise = null;
 var printPick = '';
 /** 目前在看哪一個戒別；空字串＝兩者都看。分班是給菩薩戒用的，所以預設菩薩戒。 */
 var vowScope = '菩薩戒';
+
+/** 後端已經比我新的版本號（0＝沒有）。有值就代表別人改過東西了。 */
+var newerRev = 0;
+var pollTimer = null;
+
+/** 每 15 秒問一次「版本號變了沒」。只問一個數字，不重讀名單，所以很輕。
+ *  發現別人改過只會跳橫幅請使用者自己按，絕不自動覆蓋他沒存的工作。 */
+function checkRev() {
+  if ($('#gate') && !$('#gate').hidden) return;   // 還沒登入
+  if (!pw) return;
+  return rawApi('rev', {}, 0).then(function (d) {
+    state.online = d.online || [];
+    renderWho();
+    // 用 typeof 判斷，不要用 truthy：rev 是 0 的時候會被當成「沒有版本」而讓提醒整場失效
+    if (typeof d.rev === 'number' && d.rev !== state.rev) { newerRev = d.rev; renderNotice(); }
+  }).catch(function () { /* 輪詢失敗不要吵使用者，下一輪再說 */ });
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(function () {
+    if (document.hidden) return;                  // 分頁在背景就別浪費
+    checkRev();
+  }, 15000);
+  // 切回這個分頁時立刻對一次，不要讓人盯著過期畫面等下一輪
+  if (!startPolling._vis) {
+    startPolling._vis = true;
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && pollTimer) checkRev();
+    });
+  }
+}
+function stopPolling() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
 
 /** 目前作業範圍內的人（統計、看板、列印都以這個為準） */
 function scoped() {
@@ -120,6 +156,8 @@ function rawApi(action, payload, tries) {
     .catch(function (e) {
       if (timer) clearTimeout(timer);
       if (e && e.name === 'AbortError') { e = new Error('連線逾時'); e.retryable = true; }
+      // 別人正在存檔而拿不到鎖 → 等一下自己重試，不要把這種事丟給使用者
+      if (e && e.code === 'BUSY') e.retryable = true;
       var retryable = e.retryable || /Failed to fetch|NetworkError|Load failed/i.test(e.message || '');
       if (tries > 0 && retryable) {
         var waitMs = 700 * (5 - tries);
@@ -355,8 +393,11 @@ function headOf(key) {
 }
 function setPending(key, cls, note, head) {
   var a = state.assigns[key] || {};
-  if (cls === (a.cls || '') && note === (a.note || '') && !!head === !!a.head) delete state.pending[key];
-  else state.pending[key] = { cls: cls, note: note, head: !!head };
+  if (cls === (a.cls || '') && note === (a.note || '') && !!head === !!a.head) { delete state.pending[key]; return; }
+  // baseAt 在「開始改這一筆」的當下就定下來，之後不管 state.assigns 因為別的原因被刷新
+  // （例如存完設定會順便重新載入），都不可以偷偷換掉，否則衝突偵測會失效、變成靜默覆蓋別人。
+  var baseAt = (key in state.pending) ? state.pending[key].baseAt : (a.at || '');
+  state.pending[key] = { cls: cls, note: note, head: !!head, baseAt: baseAt };
 }
 function setNote(key, note) { setPending(key, clsOf(key), note, headOf(key)); }
 
@@ -409,6 +450,9 @@ function load(fresh) {
     state.people = normalizeSource(d.source || {});
     state.assigns = {};
     (d.assigns || []).forEach(function (a) { if (a && a.key) state.assigns[a.key] = a; });
+    state.rev = d.rev || 0;
+    state.online = d.online || [];
+    state.conflicts = [];
     computeWarnings();
     state.srcInfo = (state.srcStat || []).map(function (s) {
       if (s.missing) return s.tab + '：找不到這個分頁';
@@ -682,7 +726,53 @@ function renderSave() {
   $('#saveHint').className = n ? '' : 'muted';
 }
 
+/** 上方那條通知：別人改過了、或剛剛有幾筆沒套用 */
+function renderNotice() {
+  var box = $('#notice');
+  if (!box) return;
+  var html = '';
+
+  if (state.conflicts.length) {
+    html += '<div class="nrow bad"><b>有 ' + state.conflicts.length + ' 位在您編輯時被別人改過，您的修改沒有覆蓋過去：</b><ul>' +
+      state.conflicts.slice(0, 8).map(function (c) {
+        return '<li>' + esc(c.name || c.key) + '：' +
+          esc(c.theirBy || '別人') + ' 已改成「' + esc(c.theirCls || '未分班') + '」' +
+          (c.myCls ? '，您想改成「' + esc(c.myCls) + '」' : '') + '</li>';
+      }).join('') +
+      (state.conflicts.length > 8 ? '<li>…還有 ' + (state.conflicts.length - 8) + ' 位</li>' : '') +
+      '</ul><span class="muted small">這幾筆還留在您的待存清單裡。確認要用您的版本就再按一次「儲存分班」，要用對方的就按「還原未存變更」。</span></div>';
+  }
+
+  if (newerRev) {
+    html += '<div class="nrow"><b>其他人剛更新了分班資料。</b>' +
+      '<button id="btnTakeNew" class="btn">載入最新</button>' +
+      '<span class="muted small">' + (dirtyCount() ? '您有 ' + dirtyCount() + ' 筆還沒儲存，建議先儲存再載入。' : '') + '</span></div>';
+  }
+
+  box.innerHTML = html;
+  box.hidden = !html;
+  on('#btnTakeNew', 'click', function () {
+    if (dirtyCount() && !confirm('您還有 ' + dirtyCount() + ' 筆沒儲存，載入最新會把它們丟掉。確定嗎？\n（想保留就先按取消，去按「儲存分班」）')) return;
+    state.pending = {};
+    load(true).then(function () { fillClassSelects(); newerRev = 0; renderAll(); toast('已載入最新'); })
+      .catch(function (e) { toast(e.message || '載入失敗', true); });
+  });
+}
+
+/** 右上角顯示還有誰在線上 */
+function renderWho() {
+  var el = $('#online');
+  if (!el) return;
+  var list = (state.online || []).filter(function (o) { return o.who; });
+  if (!list.length) { el.textContent = ''; el.title = ''; return; }
+  el.textContent = '　同時在線：' + list.slice(0, 3).map(function (o) { return o.who; }).join('、') +
+    (list.length > 3 ? ' 等 ' + list.length + ' 人' : '');
+  el.title = list.map(function (o) { return o.who + '（' + o.ago + ' 秒前）'; }).join('\n');
+}
+
 function renderAll() {
+  renderNotice();
+  renderWho();
   renderStats();
   renderBoard();
   renderWarnings();
@@ -714,19 +804,65 @@ function save() {
   var items = keys.map(function (k) {
     var p = byKey[k] || {};
     return { key: k, vow: p.vow || '', src: p.src || '', seq: p.seq || '', name: p.name || '', fm: p.fm || '',
-             cls: state.pending[k].cls, head: !!state.pending[k].head, note: state.pending[k].note || '' };
+             cls: state.pending[k].cls, head: !!state.pending[k].head, note: state.pending[k].note || '',
+             // 我開始改這一筆時看到的更新時間；後端拿去比對，不一樣就不蓋掉別人的
+             baseAt: state.pending[k].baseAt || '' };
   });
   $('#btnSave').disabled = true;
   $('#btnSave').textContent = '儲存中…';
   return api('saveAssign', { items: items }).then(function (d) {
+    var clash = {};
+    (d.conflicts || []).forEach(function (c) {
+      // 逾時自動重送時，第一次其實已經寫進去了：回來的「衝突」其實是我自己剛存的那一版。
+      // 內容一樣又是自己存的，就不要嚇使用者。
+      var mine = String(c.theirBy || '') === String(operator) &&
+                 String(c.theirCls || '') === String(c.myCls || '');
+      if (!mine) clash[c.key] = c;
+    });
+
     items.forEach(function (it) {
+      if (clash[it.key]) {
+        // 這一筆沒套用：把別人的現況收進來當新的基準，使用者的修改原樣留著不丟
+        var c = clash[it.key];
+        if (c.theirCls || c.theirNote) {
+          state.assigns[it.key] = { key: it.key, vow: it.vow, src: it.src, seq: it.seq, name: it.name, fm: it.fm,
+                                    cls: c.theirCls, head: c.theirHead, note: c.theirNote, at: c.theirAt, by: c.theirBy };
+        } else {
+          delete state.assigns[it.key];
+        }
+        // 基準換成對方的現況：使用者確認後再按一次儲存，就是明確地用自己的版本覆蓋
+        if (state.pending[it.key]) state.pending[it.key].baseAt = c.theirAt || '';
+        return;
+      }
       if (!it.cls && !it.note) delete state.assigns[it.key];
       else state.assigns[it.key] = { key: it.key, vow: it.vow, src: it.src, seq: it.seq, name: it.name, fm: it.fm,
                                      cls: it.cls, head: it.head, note: it.note, at: d.at, by: operator };
     });
-    state.pending = {};
+
+    // 只清掉「這次真的送出去的」那幾筆；存檔途中使用者又改的不可以跟著被刪掉
+    keys.forEach(function (k) { if (!clash[k]) delete state.pending[k]; });
+    state.conflicts = Object.keys(clash).map(function (k) { return clash[k]; });
+
+    /* 版本號不可以照單全收。
+       伺服器回的 rev 可能已經含了別人在我載入之後做的修改，而回應裡只帶回「跟我撞到的那幾筆」，
+       別人改過、我沒碰到的那些人並沒有回來。這時若把 state.rev 追平，
+       「有人更新了」的橫幅就會被永久關掉，畫面停在舊資料卻再也不提醒。
+       只有在「這次就只有我寫了一次、而且沒有任何衝突」時才算真的追上。 */
+    if (typeof d.rev === 'number') {
+      if (!state.conflicts.length && d.rev === state.rev + 1) { state.rev = d.rev; newerRev = 0; }
+      else { newerRev = d.rev; }
+    }
     renderAll();
-    toast('已儲存 ' + (d.saved || 0) + ' 筆' + (d.removed ? '，移除 ' + d.removed + ' 筆' : ''));
+
+    var adj = (d.adjusted || []).filter(function (a) { return a && a.key; });
+    if (state.conflicts.length) {
+      toast('已儲存 ' + (d.saved || 0) + ' 筆；有 ' + state.conflicts.length + ' 位剛被別人改過，沒有覆蓋過去', true);
+    } else if (adj.length) {
+      toast('已儲存 ' + (d.saved || 0) + ' 筆；同班原本的班首（' +
+        adj.map(function (a) { return a.name; }).join('、') + '）已自動卸任');
+    } else {
+      toast('已儲存 ' + (d.saved || 0) + ' 筆' + (d.removed ? '，移除 ' + d.removed + ' 筆' : ''));
+    }
   }).catch(function (e) {
     toast(e.message || '儲存失敗', true);
     throw e;
@@ -898,6 +1034,7 @@ function bind() {
   on('#btnLogout', 'click', function () {
     if (dirtyCount() && !confirm('還有 ' + dirtyCount() + ' 筆變更沒儲存，確定要登出嗎？')) return;
     pw = ''; state.pending = {}; checked = {};
+    state.conflicts = []; newerRev = 0; stopPolling();
     $('#app').hidden = true; $('#gate').hidden = false;
     $('#gatePw').value = ''; $('#gateMsg').textContent = '';
   });
@@ -907,7 +1044,7 @@ function bind() {
     state.pending = {};
     $('#btnReload').disabled = true;
     // 重新整理一定要拿最新的，跳過後端快取
-    load(true).then(function () { fillClassSelects(); renderAll(); toast('已重新載入'); })
+    load(true).then(function () { fillClassSelects(); newerRev = 0; renderAll(); toast('已重新載入'); })
       .catch(function (e) { toast(e.message || '載入失敗', true); })
       .then(function () { $('#btnReload').disabled = false; });
   });
@@ -1159,6 +1296,7 @@ function doLogin() {
       $('#gate').hidden = true;
       $('#app').hidden = false;
       renderAll();
+      startPolling();
     } catch (err) {
       $('#gateMsg').textContent = '畫面出錯：' + (err.message || err);
       $('#gate').hidden = false;
