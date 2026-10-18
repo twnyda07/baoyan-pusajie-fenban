@@ -51,7 +51,8 @@ select{width:auto; min-width:7em}
 .gate-card{width:min(420px,100%); background:var(--card); border:1px solid var(--line); border-radius:14px; padding:28px; box-shadow:var(--shadow)}
 .gate-title{font-size:26px; margin-bottom:.1em}
 .gate-sub{margin:0 0 1.2em; color:var(--ink-2); font-size:15px}
-.gate-msg{min-height:1.4em; margin:.6em 0 0; color:var(--bad); font-size:15px}
+.gate-hint{min-height:1.2em; margin:.6em 0 0; color:var(--ink-2); font-size:14px}
+.gate-msg{min-height:1.4em; margin:.3em 0 0; color:var(--bad); font-size:15px}
 .gate-note{margin:.8em 0 0; font-size:13px; color:var(--ink-2)}
 
 /* ---------- 版面 ---------- */

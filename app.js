@@ -3,7 +3,7 @@
 (function () {
 'use strict';
 
-var BUILD = '20261018b';
+var BUILD = '20261018d';
 
 /* ===================== 基礎 ===================== */
 var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -400,9 +400,10 @@ function dirtyCount() { return Object.keys(state.pending).length; }
 var EXCLUDE = '✕ 排除';
 
 /* ===================== 載入 ===================== */
-function load() {
-  if (loadingPromise) return loadingPromise;
-  loadingPromise = api('load').then(function (d) {
+function load(fresh) {
+  // 要最新的就不能搭別人的便車，否則「重新整理」可能拿到剛好在飛的那個快取版本
+  if (loadingPromise && !fresh) return loadingPromise;
+  loadingPromise = api('load', fresh ? { fresh: true } : {}).then(function (d) {
     role = d.role || 'admin';
     state.settings = d.settings || { title: '', classes: [] };
     state.people = normalizeSource(d.source || {});
@@ -412,7 +413,9 @@ function load() {
     state.srcInfo = (state.srcStat || []).map(function (s) {
       if (s.missing) return s.tab + '：找不到這個分頁';
       return s.tab + ' ' + s.taken + ' 人' + (s.blank ? '（另有 ' + s.blank + ' 列沒填姓名，當成空白列略過）' : '');
-    }).join('；') + '。合計 ' + state.people.length + ' 人。後端時間 ' + (d.serverTime || '');
+    }).join('；') + '。合計 ' + state.people.length + ' 人。' +
+      '後端時間 ' + (d.serverTime || '') +
+      (d.took != null ? '（讀取 ' + (d.took / 1000).toFixed(1) + ' 秒' + (d.cached ? '，用快取' : '，直接讀試算表') + '）' : '');
     loadingPromise = null;
     return d;
   }).catch(function (e) { loadingPromise = null; throw e; });
@@ -903,7 +906,8 @@ function bind() {
     if (dirtyCount() && !confirm('還有 ' + dirtyCount() + ' 筆變更沒儲存，重新整理會把它們丟掉，確定嗎？')) return;
     state.pending = {};
     $('#btnReload').disabled = true;
-    load().then(function () { fillClassSelects(); renderAll(); toast('已重新載入'); })
+    // 重新整理一定要拿最新的，跳過後端快取
+    load(true).then(function () { fillClassSelects(); renderAll(); toast('已重新載入'); })
       .catch(function (e) { toast(e.message || '載入失敗', true); })
       .then(function () { $('#btnReload').disabled = false; });
   });
@@ -1137,6 +1141,17 @@ function doLogin() {
   btn.disabled = true;
   btn.textContent = '載入中…';
   $('#gateMsg').textContent = '';
+  // 跑秒數給使用者看，不然畫面像當掉；Apps Script 第一次叫醒本來就要幾秒
+  var t0 = Date.now();
+  // 少一個元素不該讓登入掛掉——跟本檔 on() 的原則一致
+  function setHint(txt) { var h = $('#gateHint'); if (h) h.textContent = txt; }
+  clearInterval(doLogin._t);
+  doLogin._t = setInterval(function () {
+    var s = Math.round((Date.now() - t0) / 1000);
+    setHint('正在向試算表拿名單…已等 ' + s + ' 秒' +
+      (s >= 12 ? '（第一次叫醒後端比較久，請再等一下）' : ''));
+  }, 500);
+  function stopTimer() { clearInterval(doLogin._t); setHint(''); }
   // 注意：load() 成功後才進畫面；enter() 自己的錯不要被當成密碼錯
   load().then(function () {
     try {
@@ -1155,6 +1170,7 @@ function doLogin() {
     $('#gatePw').value = '';
     $('#gateMsg').textContent = e.message || '登入失敗';
   }).then(function () {
+    stopTimer();
     btn.disabled = false;
     btn.textContent = '進入系統';
   });
