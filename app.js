@@ -3,7 +3,7 @@
 (function () {
 'use strict';
 
-var BUILD = '20261018a';
+var BUILD = '20261018b';
 
 /* ===================== 基礎 ===================== */
 var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -142,15 +142,22 @@ function reauth() {
 /* 四個分頁欄名各不相同，在這裡統一。後端只負責把原始列丟過來，正規化只有這一份。 */
 var VOWS = ['菩薩戒', '三皈五戒'];
 
+/* 線上報名表的「信眾姓名」是報名帳號的擁有人，「登記姓名」才是真正要受戒的人。
+   兩欄不一定一樣（例如太太用自己的帳號幫先生報名）。
+   所以 name 一律先取「登記姓名」，沒有那一欄或那一格空白時才退回「信眾姓名」，
+   帳號擁有人另外收在 account，畫面與列印會標出來，方便聯絡。
+   這樣寫的好處：哪天寺方在菩薩戒-線上也加上「登記姓名」欄，不必改程式就會自動生效。 */
 var SRC_DEFS = [
   { tab: '菩薩戒-線上', vow: '菩薩戒', kind: '線上',
-    F: { seq: '流水號', name: '信眾姓名', fm: '法名', sex: '性別', dob: '生日', phone: '電話',
+    F: { seq: '流水號', name: '登記姓名', nameAlt: '信眾姓名', account: '信眾姓名',
+         fm: '法名', sex: '性別', dob: '生日', phone: '電話',
          from: '皈依師長', city: '縣市', note: '備註', active: '啟用', vows: ['增益戒'] } },
   { tab: '菩薩戒-紙本', vow: '菩薩戒', kind: '紙本',
     F: { seq: '流水號', name: '姓名', fm: '法名', sex: '性別', dob: '生日', phone: '電話',
          from: '推薦之分院/其他', city: '縣市', note: '寶', age: '年齡', job: '職業', vows: ['增益戒'] } },
   { tab: '三皈五戒-線上', vow: '三皈五戒', kind: '線上',
-    F: { seq: '流水號', name: '信眾姓名', fm: '法名', sex: '性別', dob: '生日', phone: '電話',
+    F: { seq: '流水號', name: '登記姓名', nameAlt: '信眾姓名', account: '信眾姓名',
+         fm: '法名', sex: '性別', dob: '生日', phone: '電話',
          from: '', city: '', note: '備註', active: '啟用', vows: ['三皈依', '受五戒', '增益戒'] } },
   { tab: '三皈五戒-紙本', vow: '三皈五戒', kind: '紙本',
     F: { seq: '流水號', name: '姓名', fm: '法名', sex: '性別', dob: '生日', phone: '電話',
@@ -205,10 +212,14 @@ function normalizeSource(src) {
     var header = blk.header;
     var taken = 0, blank = 0;
     (blk.rows || []).forEach(function (row, i) {
-      var name = pick(header, row, F.name);
+      // 受戒的是「登記姓名」那個人；沒有這一欄（或空白）才退回「信眾姓名」
+      var name = pick(header, row, F.name) || pick(header, row, F.nameAlt);
       // 紙本常常預留一堆只有流水號的空列，沒有姓名就不是真的報名者
       if (!name) { blank++; return; }
       taken++;
+      // 報名帳號的擁有人，跟受戒者不同人時才記下來（聯絡時用得到）
+      var acct = pick(header, row, F.account);
+      if (acct === name) acct = '';
       var seq = pick(header, row, F.seq) || ('r' + (i + 1));
       var dobRaw = pick(header, row, F.dob);
       var dob = parseDob(dobRaw);
@@ -230,6 +241,7 @@ function normalizeSource(src) {
         tab: def.tab,
         seq: seq,
         name: name,
+        account: acct,
         fm: pick(header, row, F.fm),
         sex: sex,
         dobRaw: dobRaw,
@@ -554,7 +566,8 @@ function visiblePeople() {
     if (fWarn === 'both' && !p.wBoth) return false;
     if (fWarn === 'data' && !p.wData) return false;
     if (q) {
-      var hay = (p.name + ' ' + p.fm + ' ' + p.phone + ' ' + p.from + ' ' + p.city + ' ' + p.note).toLowerCase();
+      // 搜尋也要吃得到報名帳號：信眾只記得自己帳號的名字時找得到人
+      var hay = (p.name + ' ' + p.account + ' ' + p.fm + ' ' + p.phone + ' ' + p.from + ' ' + p.city + ' ' + p.note).toLowerCase();
       if (hay.indexOf(q) < 0) return false;
     }
     return true;
@@ -625,7 +638,8 @@ function renderTable() {
     return '<tr class="' + (p.key in state.pending ? 'dirty ' : '') + (p.active ? '' : 'off') + '" data-key="' + esc(p.key) + '">' +
       '<td class="c-chk no-print"><input type="checkbox" class="rowChk" data-key="' + esc(p.key) + '"' + (checked[p.key] ? ' checked' : '') + '></td>' +
       '<td class="c-no">' + (i + 1) + '</td>' +
-      '<td class="c-name">' + esc(p.name) + '</td>' +
+      '<td class="c-name">' + esc(p.name) +
+        (p.account ? '<span class="acct" title="報名帳號的擁有人，不是受戒者">帳號：' + esc(p.account) + '</span>' : '') + '</td>' +
       '<td class="c-fm">' + esc(p.fm || '—') + (p.wFm ? '<span class="badge fm">重</span>' : '') + '</td>' +
       '<td class="c-vow">' + vowCell + '</td>' +
       '<td class="c-sex">' + (p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '—') + '</td>' +
@@ -839,7 +853,8 @@ function buildPrint(kind) {
         '<td class="ctr">' + (p.age == null ? '—' : p.age) + '</td>' +
         '<td class="ctr">' + esc(p.src) + '</td><td>' + esc(p.from || '') + '</td>' +
         (opts.phone ? '<td>' + esc(p.phone || '') + '</td>' : '') +
-        '<td>' + esc([noteOf(p.key), p.note, p.wBoth ? '兩戒都受' : '', p.wDup ? '疑似重複報名' : '', p.wFm ? '法名重複' : ''].filter(Boolean).join('；')) + '</td></tr>';
+        '<td>' + esc([noteOf(p.key), p.account ? '報名帳號：' + p.account : '', p.note,
+          p.wBoth ? '兩戒都受' : '', p.wDup ? '疑似重複報名' : '', p.wFm ? '法名重複' : ''].filter(Boolean).join('；')) + '</td></tr>';
     });
     h += '</tbody></table>';
     html = '<div class="sheet"><h2>全體戒子名冊</h2><p class="sheetsub">' + headLine() + '　共 ' + all.length + ' 人</p>' + h + '</div>';
@@ -848,7 +863,7 @@ function buildPrint(kind) {
 }
 
 function csvDump() {
-  var rows = [['班別', '座號', '班首', '法名', '姓名', '戒別', '受戒項目', '性別', '年齡', '生日', '來源', '流水號', '分院／皈依師長', '電話', '分班備註', '報名表備註', '警示']];
+  var rows = [['班別', '座號', '班首', '法名', '姓名', '報名帳號（非受戒者）', '戒別', '受戒項目', '性別', '年齡', '生日', '來源', '流水號', '分院／皈依師長', '電話', '分班備註', '報名表備註', '警示']];
   var A = assignedList();
   A.order.forEach(function (c) {
     (A.byCls[c] || []).forEach(function (p, i) { rows.push(line(p, c, i + 1)); });
@@ -856,7 +871,7 @@ function csvDump() {
   A.out.forEach(function (p, i) { rows.push(line(p, EXCLUDE, i + 1)); });
   A.none.forEach(function (p, i) { rows.push(line(p, '未分班', i + 1)); });
   function line(p, c, i) {
-    return [c, i, headOf(p.key) ? '★ 班首' : '', p.fm, p.name, p.vow, p.items, p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '', p.age == null ? '' : p.age,
+    return [c, i, headOf(p.key) ? '★ 班首' : '', p.fm, p.name, p.account, p.vow, p.items, p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '', p.age == null ? '' : p.age,
             p.dobRaw, p.src, p.seq, p.from, p.phone, noteOf(p.key), p.note,
             [p.wBoth ? '兩戒都受' : '', p.wDup ? '疑似重複報名' : '', p.wFm ? '法名重複' : '', p.wData].filter(Boolean).join('；')];
   }

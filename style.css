@@ -132,6 +132,7 @@ table.list thead th{position:sticky; top:0; background:#f4efe7; font-size:14px; 
 table.list tbody tr:hover{background:#f8f4ed}
 table.list tr.off td{opacity:.5}
 table.list td.c-name{font-weight:700}
+td.c-name .acct{display:block; font-size:12px; font-weight:400; color:var(--ink-2)}
 table.list td.c-fm{font-weight:700; letter-spacing:.06em}
 td.c-note{white-space:normal; max-width:18em; font-size:14px; color:var(--ink-2)}
 td.c-cls select{min-width:10.5em}
