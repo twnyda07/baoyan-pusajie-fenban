@@ -169,6 +169,9 @@ tr.dirty:hover{background:#fbf3dd}
 
 /* ---------- 卡片 / 列印選單 ---------- */
 .card{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:16px; max-width:680px}
+.gueststate{margin:.2em 0 .8em; padding:.6em .9em; border-radius:9px; font-size:15px; line-height:1.6}
+.gueststate.on{background:#eef4ee; border:1px solid #cfe0d3; color:#2f5c3f}
+.gueststate.off{background:#f2efec; border:1px solid var(--line-2); color:var(--ink-2)}
 .printpick h2{font-size:19px}
 .pickgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin:12px 0}
 .pick{font:inherit; text-align:left; cursor:pointer; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px}

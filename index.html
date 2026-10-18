@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>菩薩戒分班系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261017j">
+<link rel="stylesheet" href="style.css?v=20261018a">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
     </label>
     <button id="gateBtn" class="btn primary wide">進入系統</button>
     <p id="gateMsg" class="gate-msg"></p>
-    <p class="gate-note">工作人員密碼可分班；訪客密碼只能查看與列印。</p>
+    <p class="gate-note">工作人員密碼可分班；訪客密碼看到的資料一樣，但只能查看與列印。<br>訪客帳號僅在戒會期間開放，期間過後會自動停用。</p>
   </div>
 </div>
 
@@ -184,8 +184,19 @@
       <label class="field"><span>班別清單（逗號分隔，順序就是顯示順序）</span>
         <input id="setClasses" type="text" autocomplete="off"></label>
       <label class="field"><span>工作人員密碼</span><input id="setPw" type="text" autocomplete="off"></label>
-      <label class="field"><span>訪客密碼（只能看）</span><input id="setGuestPw" type="text" autocomplete="off"></label>
       <button id="btnSaveSet" class="btn primary">儲存設定</button>
+    </div>
+
+    <div class="card">
+      <h2>訪客帳號</h2>
+      <p id="guestState" class="gueststate">—</p>
+      <p class="muted small">訪客用自己的密碼登入，<b>看到的資料跟工作人員一模一樣</b>（含電話、生日等個資），
+        差別只在<b>完全不能修改</b>——不能分班、不能設班首、不能寫備註、不能改設定，這些限制是擋在伺服器端的。</p>
+      <label class="field"><span>訪客密碼</span><input id="setGuestPw" type="text" autocomplete="off"></label>
+      <label class="field"><span>訪客開放到（含當天，過了就自動停用）</span>
+        <input id="setGuestUntil" type="text" autocomplete="off" placeholder="例：2026/10/28　留空白＝立刻關閉訪客"></label>
+      <button id="btnSaveGuest" class="btn primary">儲存訪客設定</button>
+      <button id="btnCloseGuest" class="btn ghost">立刻關閉訪客</button>
     </div>
     <div class="card">
       <h2>後端網址</h2>
@@ -204,7 +215,7 @@
   <div id="toast"></div>
 </div>
 
-<script src="config.js?v=20261017j"></script>
-<script src="app.js?v=20261017j"></script>
+<script src="config.js?v=20261018a"></script>
+<script src="app.js?v=20261018a"></script>
 </body>
 </html>

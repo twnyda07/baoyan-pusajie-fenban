@@ -3,7 +3,7 @@
 (function () {
 'use strict';
 
-var BUILD = '20261017j';
+var BUILD = '20261018a';
 
 /* ===================== 基礎 ===================== */
 var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -1037,12 +1037,31 @@ function bind() {
       '班別清單': $('#setClasses').value.trim(),
     };
     if ($('#setPw').value.trim()) patch['密碼'] = $('#setPw').value.trim();
-    if ($('#setGuestPw').value.trim()) patch['訪客密碼'] = $('#setGuestPw').value.trim();
     api('saveSettings', { settings: patch }).then(function () {
       if (patch['密碼']) pw = cleanPw(patch['密碼']);
       return load();
-    }).then(function () { fillClassSelects(); renderAll(); toast('設定已儲存'); })
+    }).then(function () { fillClassSelects(); renderAll(); fillSettings(); toast('設定已儲存'); })
       .catch(function (e) { toast(e.message || '儲存失敗', true); });
+  });
+
+  function saveGuest(patch, okMsg) {
+    api('saveSettings', { settings: patch })
+      .then(function () { return load(); })
+      .then(function () { fillSettings(); renderAll(); toast(okMsg); })
+      .catch(function (e) { toast(e.message || '儲存失敗', true); });
+  }
+
+  on('#btnSaveGuest', 'click', function () {
+    if (isGuest()) { toast('訪客只能查看', true); return; }
+    var patch = { '訪客開放到': $('#setGuestUntil').value.trim() };
+    if ($('#setGuestPw').value.trim()) patch['訪客密碼'] = $('#setGuestPw').value.trim();
+    saveGuest(patch, patch['訪客開放到'] ? '訪客設定已儲存' : '訪客已關閉');
+  });
+
+  on('#btnCloseGuest', 'click', function () {
+    if (isGuest()) { toast('訪客只能查看', true); return; }
+    if (!confirm('立刻關閉訪客帳號？\n\n關閉後訪客密碼就登不進來了，工作人員後台不受影響。\n日後有新活動，把「訪客開放到」填上新日期就會重新開放。')) return;
+    saveGuest({ '訪客開放到': '' }, '訪客已關閉');
   });
 
   on('#btnSaveBackend', 'click', function () {
@@ -1068,8 +1087,30 @@ function fillSettings() {
   $('#setClasses').value = (state.settings.classes || []).join(',');
   $('#setPw').value = '';
   $('#setGuestPw').value = '';
+  $('#setGuestUntil').value = state.settings.guestUntil || '';
   $('#setBackend').value = (localStorage.getItem('psj_backend') || '').trim();
   $('#srcInfo').textContent = state.srcInfo || '—';
+
+  var g = $('#guestState');
+  if (state.settings.guestOpen) {
+    g.className = 'gueststate on';
+    g.textContent = '訪客帳號開放中，到 ' + (state.settings.guestUntil || '—') + ' 為止（含當天）。' +
+      (state.settings.today ? '今天是 ' + state.settings.today + '。' : '') +
+      '過了這天不必做任何事，訪客密碼會自動失效，後台不受影響。';
+  } else {
+    g.className = 'gueststate off';
+    g.textContent = '訪客帳號目前關閉中。' + (state.settings.guestWhy ? '（' + state.settings.guestWhy + '）' : '') +
+      ' 要重新開放，把下面的日期填成新的活動結束日再儲存即可。';
+  }
+
+  // 訪客只能看：設定欄位一律唯讀
+  var ro = isGuest();
+  ['#setTitle', '#setClasses', '#setPw', '#setGuestPw', '#setGuestUntil'].forEach(function (s) {
+    var el = $(s); if (el) el.disabled = ro;
+  });
+  ['#btnSaveSet', '#btnSaveGuest', '#btnCloseGuest'].forEach(function (s) {
+    var el = $(s); if (el) el.disabled = ro;
+  });
 }
 
 function doLogin() {
