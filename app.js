@@ -47,6 +47,9 @@ var state = {
   rev: 0,              // 後端版本號，用來發現別人改過東西
   online: [],          // 目前還有誰在線上
   conflicts: [],       // 上次儲存時因他人同時修改而沒套用的
+  guides: {},          // 班別 -> {cls, who, at, by}（已存在後端的引禮師指派）
+  pendingGuides: {},   // 班別 -> {who, baseAt}（還沒存的）
+  guideConflicts: [],  // 引禮師那邊因他人同時修改而沒套用的
 };
 var pw = '';
 var operator = '';
@@ -440,6 +443,39 @@ function headOfClass(cls) {
   }
   return null;
 }
+/* ---------- 引禮師：一個班一位，key 就是班別 ---------- */
+
+/** 這一班目前的引禮師（含還沒儲存的） */
+function guideOf(cls) {
+  if (cls in state.pendingGuides) return state.pendingGuides[cls].who;
+  var g = state.guides[cls];
+  return g ? (g.who || '') : '';
+}
+
+/** 指派／取消。baseAt 在「開始改這一班」當下就定下來，之後不管 state.guides
+    因為別的原因被刷新，都不會被偷換掉——跟分班那邊同一條規矩。 */
+function setGuide(cls, who) {
+  who = String(who || '').trim();
+  var g = state.guides[cls];
+  var cur = g ? (g.who || '') : '';
+  if (who === cur) { delete state.pendingGuides[cls]; return; }
+  var baseAt = (cls in state.pendingGuides) ? state.pendingGuides[cls].baseAt : (g ? (g.at || '') : '');
+  state.pendingGuides[cls] = { who: who, baseAt: baseAt };
+}
+
+/** 這位法師已經被排到哪一班（避免一人被排兩班） */
+function classOfGuide(who) {
+  if (!who) return '';
+  var hit = '';
+  allClasses().concat(extraClasses()).forEach(function (c) {
+    if (!hit && guideOf(c) === who) hit = c;
+  });
+  return hit;
+}
+
+function guideRoster() { return (state.settings.guides || []).slice(); }
+function guideDirtyCount() { return Object.keys(state.pendingGuides).length; }
+
 function dirtyCount() { return Object.keys(state.pending).length; }
 
 var EXCLUDE = '✕ 排除';
@@ -454,9 +490,12 @@ function load(fresh) {
     state.people = normalizeSource(d.source || {});
     state.assigns = {};
     (d.assigns || []).forEach(function (a) { if (a && a.key) state.assigns[a.key] = a; });
+    state.guides = {};
+    (d.guides || []).forEach(function (g) { if (g && g.key) state.guides[g.key] = g; });
     state.rev = d.rev || 0;
     state.online = d.online || [];
     state.conflicts = [];
+    state.guideConflicts = [];
     computeWarnings();
     state.srcInfo = (state.srcStat || []).map(function (s) {
       if (s.missing) return s.tab + '：找不到這個分頁';
@@ -531,6 +570,10 @@ function renderBoard() {
       '<span class="cnum">' + k.n + '</span>' +
       '<span class="cmix">男 ' + k.M + '／女 ' + k.F + '</span>' +
       (k.n ? '<span class="chead' + (h ? '' : ' none') + '">' + (h ? '★ ' + esc(h.fm || h.name) : '未設班首') + '</span>' : '') +
+      (c === EXCLUDE ? '' : (function () {
+        var g = guideOf(c);
+        return '<span class="cguide' + (g ? '' : ' none') + '">' + (g ? '引 ' + esc(g) : '未排引禮師') + '</span>';
+      })()) +
       '</button>';
   }
   var east = [], west = [], other = [];
@@ -717,6 +760,44 @@ function renderTable() {
   renderBulk();
 }
 
+/** 引禮師指派面板：14 班一列一個下拉。已被排走的法師會標出在哪一班，避免一人排兩班。 */
+var guideOpen = false;
+function renderGuides() {
+  var box = $('#guidebox');
+  if (!box) return;
+  var classes = allClasses().concat(extraClasses());
+  var roster = guideRoster();
+  var done = classes.filter(function (c) { return guideOf(c); }).length;
+
+  $('#guideSummary').textContent = '已排 ' + done + '／' + classes.length + ' 班' +
+    (guideDirtyCount() ? '　有 ' + guideDirtyCount() + ' 班未儲存' : '');
+  $('#guideCaret').textContent = guideOpen ? '收合 ▲' : '展開 ▼';
+  var body = $('#guideBody');
+  body.hidden = !guideOpen;
+  if (!guideOpen) return;
+
+  if (!roster.length) {
+    body.innerHTML = '<p class="muted small">還沒有引禮師名單。請到「設定 → 引禮師名單」填入，用逗號分隔。</p>';
+    return;
+  }
+  var cnt = countByClass();
+  body.innerHTML = '<div class="guidegrid">' + classes.map(function (c) {
+    var cur = guideOf(c);
+    var n = (cnt[c] || {}).n || 0;
+    var opts = '<option value="">— 未排 —</option>' + roster.map(function (w) {
+      var at = classOfGuide(w);
+      var busy = at && at !== c;
+      return '<option value="' + esc(w) + '"' + (w === cur ? ' selected' : '') +
+        '>' + esc(w) + (busy ? '（已排 ' + esc(at) + '）' : '') + '</option>';
+    }).join('');
+    return '<label class="guiderow' + (c in state.pendingGuides ? ' dirty' : '') + '">' +
+      '<span class="gcls">' + esc(c) + '<span class="gnum">' + n + ' 人</span></span>' +
+      '<select class="guideSel" data-cls="' + esc(c) + '"' + (isGuest() ? ' disabled' : '') + '>' + opts + '</select>' +
+      '</label>';
+  }).join('') + '</div>' +
+  '<p class="muted small">一位法師排兩班時，選單會標出他已經在哪一班，但系統不會替您擋下來。改完記得按右下角「儲存分班」。</p>';
+}
+
 function renderBulk() {
   var n = Object.keys(checked).filter(function (k) { return checked[k]; }).length;
   $('#bulkbar').hidden = n === 0 || isGuest();
@@ -725,12 +806,14 @@ function renderBulk() {
 }
 
 function renderSave() {
-  var n = dirtyCount();
-  $('#btnSave').disabled = n === 0 || isGuest();
-  $('#btnRevert').disabled = n === 0;
-  $('#savebar').className = 'savebar no-print' + (n ? ' hot' : '');
-  $('#saveHint').textContent = n ? ('有 ' + n + ' 筆變更還沒儲存') : '尚無未儲存的變更';
-  $('#saveHint').className = n ? '' : 'muted';
+  var n = dirtyCount(), g = guideDirtyCount(), tot = n + g;
+  $('#btnSave').disabled = tot === 0 || isGuest();
+  $('#btnRevert').disabled = tot === 0;
+  $('#savebar').className = 'savebar no-print' + (tot ? ' hot' : '');
+  $('#saveHint').textContent = tot
+    ? ('有 ' + (n ? n + ' 筆分班' : '') + (n && g ? '、' : '') + (g ? g + ' 班引禮師' : '') + '還沒儲存')
+    : '尚無未儲存的變更';
+  $('#saveHint').className = tot ? '' : 'muted';
 }
 
 /** 上方那條通知：別人改過了、或剛剛有幾筆沒套用 */
@@ -782,6 +865,7 @@ function renderAll() {
   renderWho();
   renderStats();
   renderBoard();
+  renderGuides();
   renderWarnings();
   renderTable();
   renderSave();
@@ -803,9 +887,37 @@ function fillClassSelects() {
 }
 
 /* ===================== 儲存 ===================== */
+/** 引禮師存檔。跟分班一樣只送改過的那幾班，衝突不覆蓋。 */
+function saveGuides() {
+  var keys = Object.keys(state.pendingGuides);
+  if (!keys.length) return Promise.resolve(null);
+  var items = keys.map(function (c) {
+    return { key: c, cls: c, vow: vowScope || '', who: state.pendingGuides[c].who,
+             baseAt: state.pendingGuides[c].baseAt || '' };
+  });
+  return api('saveGuides', { items: items }).then(function (d) {
+    var clash = {};
+    (d.conflicts || []).forEach(function (c) {
+      clash[c.key] = 1;
+      // 下次再按儲存要以「對方現在的時間戳」為基準，否則永遠卡在衝突
+      if (state.pendingGuides[c.key]) state.pendingGuides[c.key].baseAt = c.theirAt || '';
+    });
+    state.guideConflicts = d.conflicts || [];
+    keys.forEach(function (c) { if (!clash[c]) delete state.pendingGuides[c]; });
+    return d;
+  });
+}
+
 function save() {
   var keys = Object.keys(state.pending);
-  if (!keys.length) return Promise.resolve();
+  if (!keys.length) return saveGuides().then(function (d) {
+    if (!d) return;
+    var cleanG = !(d.conflicts || []).length;
+    load(true).then(function () { if (cleanG) newerRev = 0; renderAll(); });
+    var msg = d.saved ? ('已儲存 ' + d.saved + ' 班引禮師') : '引禮師沒有變更';
+    if ((d.conflicts || []).length) msg += '，' + d.conflicts.length + ' 班因他人同時修改未套用';
+    toast(msg, (d.conflicts || []).length > 0);
+  });
   var byKey = {};
   state.people.forEach(function (p) { byKey[p.key] = p; });
   var items = keys.map(function (k) {
@@ -859,6 +971,9 @@ function save() {
       if (!state.conflicts.length && d.rev === state.rev + 1) { state.rev = d.rev; newerRev = 0; }
       else { newerRev = d.rev; }
     }
+    // 分班與引禮師是兩次寫入，各自都會讓後端 rev +1。
+    // 若等一下還要寫引禮師，這裡就不能先把 rev 追平，否則會把別人的更新提醒吃掉。
+    if (guideDirtyCount()) { newerRev = typeof d.rev === 'number' ? d.rev : newerRev; }
     renderAll();
 
     var adj = (d.adjusted || []).filter(function (a) { return a && a.key; });
@@ -870,6 +985,25 @@ function save() {
     } else {
       toast('已儲存 ' + (d.saved || 0) + ' 筆' + (d.removed ? '，移除 ' + d.removed + ' 筆' : ''));
     }
+  }).then(function () {
+    // 分班寫完才寫引禮師，兩者都走各自的衝突偵測
+    if (!guideDirtyCount()) return;
+    return saveGuides().then(function (g) {
+      if (!g) return;
+      if ((g.conflicts || []).length) {
+        toast('引禮師有 ' + g.conflicts.length + ' 班剛被別人改過，沒有覆蓋過去', true);
+      } else if (g.saved || g.removed) {
+        toast('引禮師已儲存 ' + (g.saved || 0) + ' 班' + (g.removed ? '，取消 ' + g.removed + ' 班' : ''));
+      }
+      // 分班與引禮師是兩次寫入，rev 會 +2，追平邏輯只認 +1，所以這裡直接重讀最新。
+      // 重讀之後畫面就是最新的，橫幅要關掉——但只有在兩邊都沒有衝突時才關，
+      // 有衝突代表確實有人動過同一筆，那面橫幅要留著提醒。
+      var clean = !state.conflicts.length && !(g.conflicts || []).length;
+      return load(true).then(function () {
+        if (clean) newerRev = 0;
+        renderAll();
+      });
+    });
   }).catch(function (e) {
     toast(e.message || '儲存失敗', true);
     throw e;
@@ -947,7 +1081,8 @@ function buildPrint(kind) {
         var l = A.byCls[c] || [];
         var hd = headOfClass(c);
         return '<div class="boardcol"><h3>' + esc(c) + '（' + l.length + '）</h3>' +
-          '<p class="colhead">班首：' + (hd ? esc(hd.fm || hd.name) : '—') + '</p><ol>' +
+          '<p class="colhead">班首：' + (hd ? esc(hd.fm || hd.name) : '—') + '</p>' +
+          '<p class="colhead">引禮師：' + (guideOf(c) ? esc(guideOf(c)) : '—') + '</p><ol>' +
           l.map(function (p) {
             return '<li>' + (headOf(p.key) ? '★' : '') + esc(p.fm || '—') + ' ' + esc(p.name) + '</li>';
           }).join('') + '</ol></div>';
@@ -971,6 +1106,7 @@ function buildPrint(kind) {
       html += '<div class="sheet"><h2>' + esc(c) + '　戒子名冊</h2>' +
         '<p class="sheetsub">' + headLine() + '　本班 ' + l.length + ' 人（男 ' + m + '／女 ' + (l.length - m) + '）' +
         '　班首：' + (hd ? esc((hd.fm ? hd.fm + ' ' : '') + hd.name) : '＿＿＿＿＿') +
+        '　引禮師：' + (guideOf(c) ? esc(guideOf(c)) : '＿＿＿＿＿') +
         '　導引法師：＿＿＿＿＿</p>' +
         rosterTable(l, opts) + '</div>';
     });
@@ -1179,11 +1315,20 @@ function bind() {
   });
   on('#btnBulkClear', 'click', function () { checked = {}; renderTable(); });
 
+  on('#guideToggle', 'click', function () { guideOpen = !guideOpen; renderGuides(); });
+  on('#guideBody', 'change', function (e) {
+    var sel = e.target.closest('select.guideSel');
+    if (!sel || isGuest()) return;
+    setGuide(sel.getAttribute('data-cls'), sel.value);
+    renderGuides(); renderBoard(); renderSave();
+  });
+
   on('#btnSave', 'click', function () { save(); });
   on('#btnRevert', 'click', function () {
-    if (!dirtyCount()) return;
-    if (!confirm('把還沒儲存的 ' + dirtyCount() + ' 筆變更丟掉？')) return;
-    state.pending = {}; renderAll(); toast('已還原');
+    var tot = dirtyCount() + guideDirtyCount();
+    if (!tot) return;
+    if (!confirm('把還沒儲存的 ' + tot + ' 筆變更丟掉？（含分班與引禮師）')) return;
+    state.pending = {}; state.pendingGuides = {}; renderAll(); toast('已還原');
   });
 
   $$('.pick').forEach(function (b) {
@@ -1209,6 +1354,7 @@ function bind() {
     var patch = {
       '戒會名稱': $('#setTitle').value.trim(),
       '班別清單': $('#setClasses').value.trim(),
+      '引禮師名單': $('#setGuides').value.trim(),
     };
     if ($('#setPw').value.trim()) patch['密碼'] = $('#setPw').value.trim();
     api('saveSettings', { settings: patch }).then(function () {
@@ -1259,6 +1405,7 @@ function bind() {
 function fillSettings() {
   $('#setTitle').value = state.settings.title || '';
   $('#setClasses').value = (state.settings.classes || []).join(',');
+  $('#setGuides').value = (state.settings.guides || []).join(',');
   $('#setPw').value = '';
   $('#setGuestPw').value = '';
   $('#setGuestUntil').value = state.settings.guestUntil || '';
@@ -1279,7 +1426,7 @@ function fillSettings() {
 
   // 訪客只能看：設定欄位一律唯讀
   var ro = isGuest();
-  ['#setTitle', '#setClasses', '#setPw', '#setGuestPw', '#setGuestUntil'].forEach(function (s) {
+  ['#setTitle', '#setClasses', '#setGuides', '#setPw', '#setGuestPw', '#setGuestUntil'].forEach(function (s) {
     var el = $(s); if (el) el.disabled = ro;
   });
   ['#btnSaveSet', '#btnSaveGuest', '#btnCloseGuest'].forEach(function (s) {

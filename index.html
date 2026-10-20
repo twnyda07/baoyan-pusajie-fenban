@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>菩薩戒分班系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261020b">
+<link rel="stylesheet" href="style.css?v=20261020c">
 </head>
 <body>
 
@@ -90,6 +90,14 @@
         <span class="board-tag plain">其他</span>
         <div id="boardOther" class="board-cells"></div>
       </div>
+    </div>
+
+    <div class="guidebox no-print" id="guidebox">
+      <button id="guideToggle" class="guidetoggle" type="button">
+        <span>引禮師指派　<span id="guideSummary" class="muted small"></span></span>
+        <span class="caret" id="guideCaret">展開 ▼</span>
+      </button>
+      <div id="guideBody" class="guidebody" hidden></div>
     </div>
 
     <div class="toolbar no-print">
@@ -187,6 +195,8 @@
       <label class="field"><span>戒會名稱</span><input id="setTitle" type="text" autocomplete="off"></label>
       <label class="field"><span>班別清單（逗號分隔，順序就是顯示順序）</span>
         <input id="setClasses" type="text" autocomplete="off"></label>
+      <label class="field"><span>引禮師名單（逗號分隔，順序就是下拉顯示順序）</span>
+        <input id="setGuides" type="text" autocomplete="off"></label>
       <label class="field"><span>工作人員密碼</span><input id="setPw" type="text" autocomplete="off"></label>
       <button id="btnSaveSet" class="btn primary">儲存設定</button>
     </div>
@@ -219,7 +229,7 @@
   <div id="toast"></div>
 </div>
 
-<script src="config.js?v=20261020b"></script>
-<script src="app.js?v=20261020b"></script>
+<script src="config.js?v=20261020c"></script>
+<script src="app.js?v=20261020c"></script>
 </body>
 </html>
