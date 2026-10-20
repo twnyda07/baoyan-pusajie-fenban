@@ -125,8 +125,11 @@ function rawApi(action, payload, tries) {
   var body = Object.assign({ action: action, pw: pw, by: operator }, payload || {});
   tries = tries == null ? 4 : tries;
 
+  // Apps Script 本身可以跑到 6 分鐘，但 Google 的路由偶爾會慢到 30～60 秒。
+  // 原本客戶端 25 秒就 abort，等於在 Google 還在回的時候自己把線掐掉，
+  // 四次重試每次都被掐，使用者就是「等很久還是進不去」。放寬到 90 秒。
   var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
-  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 25000) : null;
+  var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 90000) : null;
 
   return fetch(url, {
     method: 'POST',
@@ -160,7 +163,8 @@ function rawApi(action, payload, tries) {
       if (e && e.code === 'BUSY') e.retryable = true;
       var retryable = e.retryable || /Failed to fetch|NetworkError|Load failed/i.test(e.message || '');
       if (tries > 0 && retryable) {
-        var waitMs = 700 * (5 - tries);
+        // 退避拉長：Google 慢的時候馬上重打只會一起塞住
+        var waitMs = 1500 * (5 - tries);
         return new Promise(function (res) { setTimeout(res, waitMs); })
           .then(function () { return rawApi(action, payload, tries - 1); });
       }
