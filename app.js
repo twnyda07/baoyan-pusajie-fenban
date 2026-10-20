@@ -104,10 +104,12 @@ function isGuest() { return role === 'guest'; }
 function backendUrl() {
   var saved = (localStorage.getItem('psj_backend') || '').trim();
   if (saved) return saved;
+  /* 本機測試一律走同 port 的 mock，而且必須排在 CONFIG.backend 前面。
+     原本順序是 CONFIG 先，但 CONFIG.backend 永遠有值，所以這條是死碼——
+     在 localhost 開起來按「儲存」會直接寫進線上正式試算表。 */
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return location.origin + '/exec';
   var cfg = ((window.CONFIG && window.CONFIG.backend) || '').trim();
   if (cfg) return cfg;
-  // 本機測試：mock 後端跟網頁同一個 port
-  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) return location.origin + '/exec';
   return '';
 }
 
@@ -478,6 +480,14 @@ function guideDirtyCount() { return Object.keys(state.pendingGuides).length; }
 
 function dirtyCount() { return Object.keys(state.pending).length; }
 
+/* 分班與引禮師是兩份待存清單。所有「要不要攔住使用者」的判斷都必須兩份一起看，
+   只看其中一份就會把另一份靜默丟掉，或讓它殘留到下一個登入的人畫面上。 */
+function allDirty() { return dirtyCount() + guideDirtyCount(); }
+function dirtyLabel() {
+  var n = dirtyCount(), g = guideDirtyCount();
+  return (n ? n + ' 筆分班' : '') + (n && g ? '、' : '') + (g ? g + ' 班引禮師' : '');
+}
+
 var EXCLUDE = '✕ 排除';
 
 /* ===================== 載入 ===================== */
@@ -781,21 +791,32 @@ function renderGuides() {
     return;
   }
   var cnt = countByClass();
+  // 先建「法師 → 已排哪一班」對照表。原本在選項迴圈裡呼叫 classOfGuide()，
+  // 每次都重掃一遍全部報名資料，14 班 × 33 位要掃四百多次。
+  var whoAt = {};
+  classes.forEach(function (c) { var w = guideOf(c); if (w && !(w in whoAt)) whoAt[w] = c; });
   body.innerHTML = '<div class="guidegrid">' + classes.map(function (c) {
     var cur = guideOf(c);
     var n = (cnt[c] || {}).n || 0;
-    var opts = '<option value="">— 未排 —</option>' + roster.map(function (w) {
-      var at = classOfGuide(w);
+    /* 名單被改短時，已經指派出去的人要補回選項，否則下拉會顯示成「未排」騙人，
+       但看板與列印仍然照印他——跟班別下拉同一道保險。 */
+    var list = roster.slice();
+    if (cur && list.indexOf(cur) < 0) list = list.concat([cur]);
+    var opts = '<option value="">— 未排 —</option>' + list.map(function (w) {
+      var at = whoAt[w] || '';
       var busy = at && at !== c;
+      var gone = roster.indexOf(w) < 0;
       return '<option value="' + esc(w) + '"' + (w === cur ? ' selected' : '') +
-        '>' + esc(w) + (busy ? '（已排 ' + esc(at) + '）' : '') + '</option>';
+        '>' + esc(w) + (gone ? '（已不在名單）' : '') + (busy ? '（已排 ' + esc(at) + '）' : '') + '</option>';
     }).join('');
     return '<label class="guiderow' + (c in state.pendingGuides ? ' dirty' : '') + '">' +
       '<span class="gcls">' + esc(c) + '<span class="gnum">' + n + ' 人</span></span>' +
       '<select class="guideSel" data-cls="' + esc(c) + '"' + (isGuest() ? ' disabled' : '') + '>' + opts + '</select>' +
       '</label>';
   }).join('') + '</div>' +
-  '<p class="muted small">一位法師排兩班時，選單會標出他已經在哪一班，但系統不會替您擋下來。改完記得按右下角「儲存分班」。</p>';
+  (isGuest()
+    ? '<p class="muted small">訪客只能查看，不能修改引禮師。</p>'
+    : '<p class="muted small">一位法師排兩班時，選單會標出他已經在哪一班，但系統不會替您擋下來。改完記得按右下角「儲存分班」。</p>');
 }
 
 function renderBulk() {
@@ -833,17 +854,30 @@ function renderNotice() {
       '</ul><span class="muted small">這幾筆還留在您的待存清單裡。確認要用您的版本就再按一次「儲存分班」，要用對方的就按「還原未存變更」。</span></div>';
   }
 
+  if (state.guideConflicts.length) {
+    html += '<div class="nrow bad"><b>有 ' + state.guideConflicts.length +
+      ' 班的引禮師在您編輯時被別人改過，您的指派沒有覆蓋過去：</b><ul>' +
+      state.guideConflicts.slice(0, 8).map(function (c) {
+        return '<li>' + esc(c.cls || c.key) + '：' +
+          esc(c.theirBy || '別人') + ' 已改成「' + esc(c.theirWho || '未排') + '」' +
+          (c.myWho ? '，您想改成「' + esc(c.myWho) + '」' : '，您想取消') + '</li>';
+      }).join('') +
+      (state.guideConflicts.length > 8 ? '<li>…還有 ' + (state.guideConflicts.length - 8) + ' 班</li>' : '') +
+      '</ul><span class="muted small">畫面與列印目前顯示的是「您的版本」。確定要用自己的就再按一次「儲存分班」，' +
+      '要聽對方的就按「還原未存變更」。</span></div>';
+  }
+
   if (newerRev) {
     html += '<div class="nrow"><b>其他人剛更新了分班資料。</b>' +
       '<button id="btnTakeNew" class="btn">載入最新</button>' +
-      '<span class="muted small">' + (dirtyCount() ? '您有 ' + dirtyCount() + ' 筆還沒儲存，建議先儲存再載入。' : '') + '</span></div>';
+      '<span class="muted small">' + (allDirty() ? '您有 ' + dirtyLabel() + '還沒儲存，建議先儲存再載入。' : '') + '</span></div>';
   }
 
   box.innerHTML = html;
   box.hidden = !html;
   on('#btnTakeNew', 'click', function () {
-    if (dirtyCount() && !confirm('您還有 ' + dirtyCount() + ' 筆沒儲存，載入最新會把它們丟掉。確定嗎？\n（想保留就先按取消，去按「儲存分班」）')) return;
-    state.pending = {};
+    if (allDirty() && !confirm('您還有 ' + dirtyLabel() + '沒儲存，載入最新會把它們丟掉。確定嗎？\n（想保留就先按取消，去按「儲存分班」）')) return;
+    state.pending = {}; state.pendingGuides = {};
     load(true).then(function () { fillClassSelects(); newerRev = 0; renderAll(); toast('已載入最新'); })
       .catch(function (e) { toast(e.message || '載入失敗', true); });
   });
@@ -896,28 +930,65 @@ function saveGuides() {
              baseAt: state.pendingGuides[c].baseAt || '' };
   });
   return api('saveGuides', { items: items }).then(function (d) {
+    /* 逾時／中繼頁會自動重送，而第一次其實已經寫進試算表了。
+       重送回來的「衝突」其實是自己剛寫的那一版，不可以報給使用者看——
+       分班那邊早就有這段判定，引禮師漏掉會變成「14 班全被別人改過」的假警報。 */
+    var myWho = {};
+    items.forEach(function (it) { myWho[it.key] = String(it.who || ''); });
     var clash = {};
     (d.conflicts || []).forEach(function (c) {
+      var mine =
+        (String(c.theirBy || '') === String(operator) &&
+         String(c.theirWho || '') === String(myWho[c.key] || '')) ||
+        // 取消指派的回音：那一列已經被我刪掉，所以對方欄位全空
+        (!c.theirAt && !c.theirWho && !String(myWho[c.key] || ''));
+      if (mine) return;
       clash[c.key] = 1;
       // 下次再按儲存要以「對方現在的時間戳」為基準，否則永遠卡在衝突
       if (state.pendingGuides[c.key]) state.pendingGuides[c.key].baseAt = c.theirAt || '';
     });
-    state.guideConflicts = d.conflicts || [];
-    keys.forEach(function (c) { if (!clash[c]) delete state.pendingGuides[c]; });
-    return d;
+    state.guideConflicts = (d.conflicts || []).filter(function (c) { return clash[c.key]; });
+    keys.forEach(function (c) {
+      if (clash[c]) return;
+      // 存檔途中使用者又改了這一班 → 新值要留著當未存，不可以跟著被清掉
+      var still = state.pendingGuides[c];
+      if (still && String(still.who || '') !== String(myWho[c] || '')) return;
+      delete state.pendingGuides[c];
+    });
+    // 回音那幾班其實已經寫進去了，後續的 toast 與「要不要關橫幅」都要用過濾後的清單
+    return Object.assign({}, d, { conflicts: state.guideConflicts });
   });
 }
 
 function save() {
   var keys = Object.keys(state.pending);
-  if (!keys.length) return saveGuides().then(function (d) {
-    if (!d) return;
-    var cleanG = !(d.conflicts || []).length;
-    load(true).then(function () { if (cleanG) newerRev = 0; renderAll(); });
-    var msg = d.saved ? ('已儲存 ' + d.saved + ' 班引禮師') : '引禮師沒有變更';
-    if ((d.conflicts || []).length) msg += '，' + d.conflicts.length + ' 班因他人同時修改未套用';
-    toast(msg, (d.conflicts || []).length > 0);
-  });
+  // 只改了引禮師：一樣要鎖按鈕（擋連點）、一樣要接錯誤（失敗不可以無聲）
+  if (!keys.length) {
+    if (!guideDirtyCount()) return Promise.resolve();
+    $('#btnSave').disabled = true;
+    $('#btnSave').textContent = '儲存中…';
+    return saveGuides().then(function (d) {
+      if (!d) return;
+      var conflicts = d.conflicts || [];
+      var cleanG = !conflicts.length;
+      var msg = d.saved ? ('已儲存 ' + d.saved + ' 班引禮師') : '引禮師沒有變更';
+      if (conflicts.length) msg += '，' + conflicts.length + ' 班因他人同時修改未套用';
+      toast(msg, conflicts.length > 0);
+      // load() 會把衝突清單歸零，但這份是「剛剛沒套用」的結果，要留著讓橫幅講出來
+      return load(true).then(function () {
+        state.guideConflicts = conflicts;
+        if (cleanG) newerRev = 0;
+        renderAll();
+      });
+    }).catch(function (e) {
+      toast(e.message || '引禮師儲存失敗', true);
+      throw e;
+    }).then(function () {
+      $('#btnSave').textContent = '儲存分班'; renderSave();
+    }, function () {
+      $('#btnSave').textContent = '儲存分班'; renderSave();
+    });
+  }
   var byKey = {};
   state.people.forEach(function (p) { byKey[p.key] = p; });
   var items = keys.map(function (k) {
@@ -999,7 +1070,11 @@ function save() {
       // 重讀之後畫面就是最新的，橫幅要關掉——但只有在兩邊都沒有衝突時才關，
       // 有衝突代表確實有人動過同一筆，那面橫幅要留著提醒。
       var clean = !state.conflicts.length && !(g.conflicts || []).length;
+      // load() 會把 state.conflicts 與 guideConflicts 都歸零（「載入最新」那條路徑本來就該清），
+      // 但這兩份是「這次儲存沒套用」的結果，洗掉的話連分班原本會亮的橫幅都會不見。
+      var keepA = state.conflicts, keepG = g.conflicts || [];
       return load(true).then(function () {
+        state.conflicts = keepA; state.guideConflicts = keepG;
         if (clean) newerRev = 0;
         renderAll();
       });
@@ -1174,16 +1249,16 @@ function bind() {
   on('#gateBy', 'keydown', function (e) { if (e.key === 'Enter') $('#gatePw').focus(); });
 
   on('#btnLogout', 'click', function () {
-    if (dirtyCount() && !confirm('還有 ' + dirtyCount() + ' 筆變更沒儲存，確定要登出嗎？')) return;
-    pw = ''; state.pending = {}; checked = {};
-    state.conflicts = []; newerRev = 0; stopPolling();
+    if (allDirty() && !confirm('還有 ' + dirtyLabel() + '沒儲存，確定要登出嗎？')) return;
+    pw = ''; state.pending = {}; state.pendingGuides = {}; checked = {};
+    state.conflicts = []; state.guideConflicts = []; newerRev = 0; stopPolling();
     $('#app').hidden = true; $('#gate').hidden = false;
     $('#gatePw').value = ''; $('#gateMsg').textContent = '';
   });
 
   on('#btnReload', 'click', function () {
-    if (dirtyCount() && !confirm('還有 ' + dirtyCount() + ' 筆變更沒儲存，重新整理會把它們丟掉，確定嗎？')) return;
-    state.pending = {};
+    if (allDirty() && !confirm('還有 ' + dirtyLabel() + '沒儲存，重新整理會把它們丟掉，確定嗎？')) return;
+    state.pending = {}; state.pendingGuides = {};
     $('#btnReload').disabled = true;
     // 重新整理一定要拿最新的，跳過後端快取
     load(true).then(function () { fillClassSelects(); newerRev = 0; renderAll(); toast('已重新載入'); })
@@ -1244,7 +1319,7 @@ function bind() {
       if (isGuest()) { toast('訪客只能查看', true); renderTable(); return; }
       var k = sel.getAttribute('data-key');
       var lostHead = setCls(k, sel.value);
-      renderStats(); renderBoard(); renderSave(); refreshClassLabels();
+      renderStats(); renderBoard(); renderSave(); refreshClassLabels(); renderGuides();
       var tr = sel.closest('tr');
       if (tr) {
         tr.classList.toggle('dirty', k in state.pending);
@@ -1327,7 +1402,9 @@ function bind() {
     var tot = dirtyCount() + guideDirtyCount();
     if (!tot) return;
     if (!confirm('把還沒儲存的 ' + tot + ' 筆變更丟掉？（含分班與引禮師）')) return;
-    state.pending = {}; state.pendingGuides = {}; renderAll(); toast('已還原');
+    state.pending = {}; state.pendingGuides = {};
+    state.conflicts = []; state.guideConflicts = [];
+    renderAll(); toast('已還原');
   });
 
   $$('.pick').forEach(function (b) {
@@ -1395,7 +1472,7 @@ function bind() {
   });
 
   window.addEventListener('beforeunload', function (e) {
-    if (!dirtyCount()) return;
+    if (!allDirty()) return;
     e.preventDefault();
     e.returnValue = '';
   });

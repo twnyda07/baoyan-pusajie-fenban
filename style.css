@@ -416,6 +416,10 @@ table.pr tr.isHead td{font-weight:700; background:#faf4e3}
 /* ---------- 列印 ---------- */
 @media print{
   @page{size:A4 landscape; margin:10mm}
+  /* 分班總表每班多了一行「引禮師」，整欄高度變高。沒有這兩條的話，
+     一超過一頁就會從中間裂開，而第二頁是沒有班別標頭的碎片，發下去會認錯班。 */
+  .boardcol{break-inside:avoid; page-break-inside:avoid}
+  .boardcol li{break-inside:avoid; page-break-inside:avoid}
   body{background:#fff}
   .no-print,.gate,.tabs,.top,.statbar,.board,.savebar,#toast,.view:not(#viewPrint){display:none !important}
   .app{max-width:none; padding:0}
