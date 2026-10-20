@@ -545,7 +545,9 @@ function renderBoard() {
   $('#boardOther').innerHTML = other.join('');
 }
 
-var warnOpen = true;
+/* 警示明細預設展開；但手機螢幕小，明細會把名單推到很下面，
+   所以窄螢幕預設收合——摘要那條橫條仍然一直顯示，警示不會被藏起來。 */
+var warnOpen = !(window.matchMedia && window.matchMedia('(max-width:820px)').matches);
 
 function renderWarnings() {
   var w = state.warn;
@@ -687,21 +689,21 @@ function renderTable() {
       '<td class="c-no">' + (i + 1) + '</td>' +
       '<td class="c-name">' + esc(p.name) +
         (p.account ? '<span class="acct" title="報名帳號的擁有人，不是受戒者">帳號：' + esc(p.account) + '</span>' : '') + '</td>' +
-      '<td class="c-fm">' + esc(p.fm || '—') + (p.wFm ? '<span class="badge fm">重</span>' : '') + '</td>' +
-      '<td class="c-vow">' + vowCell + '</td>' +
-      '<td class="c-sex">' + (p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '—') + '</td>' +
-      '<td class="c-age">' + (p.age == null ? '—' : p.age) + '</td>' +
-      '<td class="c-cls">' + clsSelectHtml(p.key, cur) + '</td>' +
-      '<td class="c-head no-print"><button class="headBtn' + (headOf(p.key) ? ' on' : '') + '"' +
+      '<td class="c-fm" data-label="法名">' + esc(p.fm || '—') + (p.wFm ? '<span class="badge fm">重</span>' : '') + '</td>' +
+      '<td class="c-vow" data-label="戒別">' + vowCell + '</td>' +
+      '<td class="c-sex" data-label="性別">' + (p.sex === 'M' ? '男' : p.sex === 'F' ? '女' : '—') + '</td>' +
+      '<td class="c-age" data-label="年齡" data-known="' + (p.age == null ? '0' : '1') + '">' + (p.age == null ? '—' : p.age) + '</td>' +
+      '<td class="c-cls" data-label="班別">' + clsSelectHtml(p.key, cur) + '</td>' +
+      '<td class="c-head no-print" data-label="班首"><button class="headBtn' + (headOf(p.key) ? ' on' : '') + '"' +
         ' data-key="' + esc(p.key) + '"' + (isGuest() ? ' disabled' : '') +
         ' title="' + (headOf(p.key) ? '取消班首' : '設為這一班的班首') + '">★</button></td>' +
-      '<td class="c-pnote no-print"><input class="noteIn" type="text" autocomplete="off" placeholder="分班備註"' +
+      '<td class="c-pnote no-print" data-label="分班備註"><input class="noteIn" type="text" autocomplete="off" placeholder="分班備註"' +
         ' data-key="' + esc(p.key) + '" value="' + esc(noteOf(p.key)) + '"' + (isGuest() ? ' disabled' : '') + '></td>' +
-      '<td class="c-dob">' + esc(p.dobRaw || '—') + '</td>' +
-      '<td class="c-src"><span class="badge src' + (p.src === '紙本' ? ' paper' : '') + '">' + esc(p.src) + ' #' + esc(p.seq) + '</span></td>' +
-      '<td class="c-from">' + esc(p.from || '—') + '</td>' +
-      '<td class="c-phone">' + esc(p.phone || '—') + '</td>' +
-      '<td class="c-note">' + esc(p.note || '') + badges + '</td>' +
+      '<td class="c-dob" data-label="生日">' + esc(p.dobRaw || '—') + '</td>' +
+      '<td class="c-src" data-label="來源"><span class="badge src' + (p.src === '紙本' ? ' paper' : '') + '">' + esc(p.src) + ' #' + esc(p.seq) + '</span></td>' +
+      '<td class="c-from" data-label="分院／皈依師長">' + esc(p.from || '—') + '</td>' +
+      '<td class="c-phone" data-label="電話">' + esc(p.phone || '—') + '</td>' +
+      '<td class="c-note" data-label="備註">' + esc(p.note || '') + badges + '</td>' +
       '</tr>';
   }).join('');
   $('#tbody').innerHTML = rows;
@@ -714,6 +716,7 @@ function renderTable() {
 function renderBulk() {
   var n = Object.keys(checked).filter(function (k) { return checked[k]; }).length;
   $('#bulkbar').hidden = n === 0 || isGuest();
+  if ($('#btnSelAll')) $('#btnSelAll').hidden = isGuest();   // 訪客本來就不能批次指定
   $('#bulkN').textContent = n;
 }
 
@@ -1147,6 +1150,17 @@ function bind() {
   on('#chkAll', 'change', function () {
     var want = $('#chkAll').checked;
     visiblePeople().forEach(function (p) { checked[p.key] = want; });
+    renderTable();
+  });
+
+  /* 手機版的全選。桌機是用表頭那個勾選框，但手機把表頭收起來了（卡片版面沒有表頭），
+     所以另外給一顆按鈕走同一套邏輯。按一次全選，再按一次全部取消。
+     注意不能放進 #bulkbar——那條在還沒勾任何人時是隱藏的，等於永遠按不到。 */
+  on('#btnSelAll', 'click', function () {
+    if (isGuest()) return;
+    var list = visiblePeople();
+    var allOn = list.length > 0 && list.every(function (p) { return checked[p.key]; });
+    list.forEach(function (p) { checked[p.key] = !allOn; });
     renderTable();
   });
 

@@ -15,6 +15,7 @@
   --shadow:0 1px 2px rgba(43,38,34,.06), 0 6px 20px rgba(43,38,34,.06);
 }
 *{box-sizing:border-box}
+.mobile-only{display:none}   /* 只在 ≤820px 出現，見下方手機版區塊 */
 html,body{margin:0;padding:0}
 body{
   background:var(--paper); color:var(--ink);
@@ -219,6 +220,176 @@ table.pr tr.isHead td{font-weight:700; background:#faf4e3}
 }
 #toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
 #toast.bad{background:var(--bad)}
+
+/* ===================================================================
+   手機版（≤820px）—— 工作人員在現場是拿手機操作，這是主要版面不是附帶適配。
+   原則：一人一張卡（寬表格在手機上按不動）、班別下拉放到最大、
+         儲存固定在拇指構得到的地方、可點目標一律 ≥44px。
+   只套用在螢幕上；列印完全不受影響（列印仍走原本的表格版面）。
+   =================================================================== */
+@media screen and (max-width:820px){
+
+  /* ---- 整體 ---- */
+  .app{padding:12px 12px 120px}          /* 下方留白要讓得開固定的儲存列 */
+  .top{gap:8px; padding-bottom:8px}
+  .top h1{font-size:19px}
+  .top-left{gap:6px}
+  .top-right{width:100%; justify-content:space-between; gap:6px}
+  .top-right .btn{flex:1; min-height:44px; white-space:nowrap; padding:.5em .5em}
+  .who{font-size:13px}
+
+  /* ---- 分頁：三等分、好按 ---- */
+  .tabs{gap:4px; margin:12px 0 0}
+  .tab{flex:1; text-align:center; padding:.65em .3em; font-size:16px; min-height:46px; border-radius:9px 9px 0 0}
+
+  /* ---- 戒別切換：整條佔滿，三等分 ---- */
+  .vowbar{gap:8px; margin:10px 0}
+  .vowlabel{width:100%; margin-bottom:-4px}
+  .vowpick{width:100%}
+  .vowbtn{flex:1; padding:.6em .3em; min-height:46px; font-size:16px}
+  .vowbar .small{font-size:13px; line-height:1.5}
+
+  /* ---- 統計：橫向滑動一列，不要吃掉三行高度 ---- */
+  .statbar{flex-wrap:nowrap; overflow-x:auto; gap:8px; margin:8px -12px 12px; padding:2px 12px 6px;
+           scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch}
+  .statbar::-webkit-scrollbar{height:0}
+  .stat{flex:0 0 auto; min-width:84px; padding:.45em .7em; scroll-snap-align:start}
+  .stat b{font-size:21px}
+  .stat span{font-size:12px}
+
+  /* ---- 班級看板：一排四格，數字大、好點 ---- */
+  .board-row{align-items:flex-start; gap:8px}
+  .board-tag{flex:0 0 auto; width:1.9em; font-size:16px}
+  .board-cells{gap:6px}
+  .cell{flex:1 1 calc(25% - 6px); min-width:0; padding:.45em .2em; min-height:62px}
+  .cell .cname{font-size:14px}
+  .cell .cnum{font-size:20px}
+  .cell .cmix,.cell .chead{font-size:11px}
+
+  /* ---- 搜尋與篩選：搜尋整條，其餘兩欄一列 ---- */
+  .toolbar{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px}
+  .search{grid-column:1 / -1; min-width:0; width:100%; min-height:46px}
+  .toolbar select{width:100%; min-width:0; min-height:46px}
+  #btnClearF{grid-column:1 / -1; min-height:46px}
+
+  /* ---- 批次指定 ---- */
+  .bulkbar{gap:8px}
+  .bulkbar select{flex:1 1 100%; min-height:46px}
+  .bulkbar .btn{flex:1; min-height:46px}
+
+  /* ================= 名單：表格 → 一人一張卡 ================= */
+  .tablewrap{overflow:visible; border:none; border-radius:0; background:transparent}
+  table.list{display:block; width:100%}
+  table.list thead{display:none}              /* 表頭在卡片版面沒有意義，改用每格的小標 */
+  table.list tbody{display:block}
+  table.list tr{
+    display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px;
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:12px 14px; margin-bottom:10px; box-shadow:var(--shadow);
+  }
+  table.list tbody tr:hover{background:var(--card)}        /* 權重要壓過第 142 行那條 */
+  table.list tbody tr.dirty,
+  table.list tbody tr.dirty:hover{background:#fdf8ea}      /* 未存變更的底色不可以被 hover 蓋掉 */
+  table.list td{display:block; border:none; padding:0; white-space:normal}
+  table.list tr.dirty{background:#fdf8ea; border-color:#e6d3a8}
+  table.list tr.off{opacity:.55}
+  table.list tr.off td{opacity:1}
+
+  /* 第一行：勾選、姓名、法名 */
+  /* 序號在手機上沒用。不直接 display:none，而是把它當成 order:9 的「零高度換行器」：
+     flex 的換行點是依內容寬度貪婪決定的，order 只改順序、不會分組，
+     所以姓名或帳號一長，「來源」籤就會被擠到動作列那行、把「班首」頂成孤零零一行。
+     插一個 100% 寬、0 高的項目在 order 9，就能保證動作列一定從新的一行開始。 */
+  table.list td.c-no{order:9; flex:1 1 100%; height:0; padding:0; margin:0;
+                     font-size:0; line-height:0; overflow:hidden}
+  /* 勾選框：整格做滿 44×44 的可點範圍，框本身放大到 34px */
+  table.list td.c-chk{order:0; flex:0 0 auto; display:flex; align-items:center;
+                      justify-content:center; min-width:44px; min-height:44px}
+  table.list td.c-chk input{width:34px; height:34px; margin:5px}
+  table.list td.c-name{order:1; flex:1 1 auto; font-size:20px; line-height:1.25}
+  table.list td.c-name .acct{font-size:12px}
+  table.list td.c-fm{order:2; flex:0 0 auto; font-size:18px; color:var(--accent)}
+
+  /* 第二行：判斷分班要看的資料做成小籤 */
+  table.list td.c-vow,
+  table.list td.c-sex,
+  table.list td.c-age,
+  table.list td.c-src{order:3; flex:0 0 auto; font-size:14px; color:var(--ink-2)}
+  table.list td.c-sex,table.list td.c-age{background:#f4efe7; border-radius:999px; padding:.15em .7em}
+  table.list td.c-sex::before,
+  table.list td.c-age::before{content:attr(data-label)"　"; font-size:12px; opacity:.7}
+  table.list td.c-age[data-known="1"]::after{content:"歲"; font-size:12px; opacity:.7}
+  table.list td.c-vow .badge,table.list td.c-src .badge{margin-left:0}
+
+  /* 動作區：班別下拉放到最大，班首就在旁邊 */
+  table.list td.c-cls{order:10; flex:1 1 auto; margin-top:4px}
+  table.list td.c-cls::before{content:attr(data-label); display:block; font-size:13px;
+                              color:var(--ink-2); margin-bottom:3px}
+  table.list td.c-cls select{width:100%; min-width:0; min-height:50px; font-size:17px}
+  table.list td.c-head{order:11; flex:0 0 auto; margin-top:4px; text-align:center}
+  table.list td.c-head::before{content:attr(data-label); display:block; font-size:13px;
+                               color:var(--ink-2); margin-bottom:3px}
+  table.list td.c-head .headBtn{min-width:62px; min-height:50px; font-size:24px}
+  table.list td.c-pnote{order:12; flex:1 1 100%}
+  table.list td.c-pnote::before{content:attr(data-label); display:block; font-size:13px;
+                                color:var(--ink-2); margin-bottom:3px}
+  table.list td.c-pnote input{width:100%; font-size:16px; min-height:44px; padding:.4em .6em}
+  /* 沒寫備註的人（多數）把這格縮小並收掉欄名，每張卡省下一行多的高度 */
+  table.list td.c-pnote:has(input:placeholder-shown)::before{display:none}
+  /* 只縮高度，**不可以**縮字級：iOS Safari 聚焦 <16px 的輸入框會把整頁自動放大 */
+  table.list td.c-pnote input:placeholder-shown{min-height:38px; color:var(--ink-2)}
+
+  /* 補充資料：小字、附欄名 */
+  table.list td.c-dob{display:none}                      /* 已經有年齡，生日在手機上先收起來 */
+  table.list td.c-from,
+  table.list td.c-phone,
+  table.list td.c-note{order:20; flex:1 1 100%; font-size:14px; color:var(--ink-2);
+                       max-width:none; padding-top:4px; border-top:1px dashed var(--line)}
+  table.list td.c-from::before,
+  table.list td.c-phone::before{content:attr(data-label)"：" ; opacity:.75}
+  table.list td.c-phone{order:21}
+  table.list td.c-note{order:22}
+  table.list td.c-note:empty{display:none}               /* 沒備註就不要留一條空線 */
+
+  .empty{padding:22px 10px}
+
+  /* ---- 儲存列：固定在拇指構得到的地方，避開 iPhone 底部手勢條 ---- */
+  .savebar{
+    flex-wrap:wrap; gap:8px; padding:.6em 12px;
+    padding-bottom:calc(.6em + env(safe-area-inset-bottom));
+    justify-content:space-between;
+  }
+  #saveHint{flex:1 1 100%; font-size:14px; text-align:center}
+  .savebar .btn{flex:1; min-height:50px; font-size:17px}
+
+  #toast{bottom:122px}
+
+  /* ---- 設定 / 列印頁 ---- */
+  .card{padding:14px 15px}
+  .pickgrid{grid-template-columns:1fr; gap:8px}
+  .pick{padding:12px 14px; min-height:60px}
+  .pickopts{gap:10px}
+  .pickopts .btn{flex:1 1 100%; min-height:48px}
+  .gate-card{padding:22px 20px}
+  .gate-title{font-size:23px}
+  .btn{min-height:44px}                                  /* 全站可點目標下限 */
+  .mobile-only{display:block}
+  #btnSelAll{grid-column:1 / -1}
+  .warntoggle{min-height:46px}                           /* 收合／展開要好按 */
+  /* 訪客唯讀：控制項要一眼看得出是鎖住的，不然放大後的下拉很像可以點 */
+  table.list td.c-cls select:disabled,
+  table.list td.c-pnote input:disabled{background:#f1ece4; color:var(--ink-2); opacity:.75}
+
+  /* 原本這裡放 body{overflow-x:hidden}，但它會讓「列印預覽」的分班總表（14 班並列）
+     在手機上捲不過去，最右邊幾班永遠看不到。實測 320px 下卡片版面本來就沒有橫向溢出，
+     所以不需要那道保險；改成只讓列印預覽自己可以橫向捲。 */
+  .printarea{overflow-x:auto; -webkit-overflow-scrolling:touch}
+  /* 捲動容器在 .printarea，但白卡底色／圓角／右框線是在子層的 .sheet 上。
+     .sheet 預設只有「可視寬度」，所以往右捲到底時最後一班會畫在白卡外面，
+     右框線還會從欄位中間穿過。讓 .sheet 隨內容撐開就對齊了；
+     順便也解決欄寬被擠到 ~54px、姓名變成一行一個字的問題。 */
+  .printarea .sheet{width:max-content; min-width:100%}
+}
 
 /* ---------- 列印 ---------- */
 @media print{
