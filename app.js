@@ -1106,8 +1106,7 @@ function buildPrint(kind) {
       html += '<div class="sheet"><h2>' + esc(c) + '　戒子名冊</h2>' +
         '<p class="sheetsub">' + headLine() + '　本班 ' + l.length + ' 人（男 ' + m + '／女 ' + (l.length - m) + '）' +
         '　班首：' + (hd ? esc((hd.fm ? hd.fm + ' ' : '') + hd.name) : '＿＿＿＿＿') +
-        '　引禮師：' + (guideOf(c) ? esc(guideOf(c)) : '＿＿＿＿＿') +
-        '　導引法師：＿＿＿＿＿</p>' +
+        '　引禮師：' + (guideOf(c) ? esc(guideOf(c)) : '＿＿＿＿＿') + '</p>' +
         rosterTable(l, opts) + '</div>';
     });
     if (!any) html = '<div class="sheet"><h2>各班名冊</h2><p class="sheetsub">目前還沒有人分到班。</p></div>';
