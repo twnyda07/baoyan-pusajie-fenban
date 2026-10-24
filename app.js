@@ -3,7 +3,7 @@
 (function () {
 'use strict';
 
-var BUILD = '20261018g';
+var BUILD = '20261024d';
 
 /* ===================== 基礎 ===================== */
 var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -35,6 +35,65 @@ function toast(msg, bad) {
   toast._t = setTimeout(function () { t.className = ''; }, bad ? 4200 : 2300);
 }
 
+/* ===================== 公告・執事（參考資料） =====================
+   依「中華民國115年10月24日 更新版」公告逐字謄錄，兩張原件存在
+   ~/寶嚴工作坊/菩薩戒分班系統/來源原件/。公告若再更新，改這一段就好。
+   這裡只是「照著公告顯示」，不是系統資料，不會影響分班。              */
+var NOTICE = {
+  date: '中華民國 115 年 10 月 24 日',
+  tag: '更新版',
+  subject: '為寶嚴山寶嚴禪寺舉行在家菩薩戒事宜',
+  three: [
+    ['得戒和尚', '傳塵大和尚'],
+    ['羯摩阿闍黎', '星曜法師'],
+    ['教授阿闍黎', '星善法師'],
+    ['開堂師父', '見輝和尚尼'],
+    ['糾察師父', '見俱和尚尼'],
+  ],
+  duty: [
+    ['維那', '星揚法師'],
+    ['悅眾', '星益法師'],
+    ['引禮師', '星慕法師、星量法師、星傳法師、星宇法師、星悟法師、星觀法師、星鐸法師、' +
+               '星然法師、星源法師、星智法師、星煦法師、星烜法師、星岫法師、星密法師'],
+    ['香燈組', '星霈法師（總）、法虔'],
+    ['東單', '星澍法師（組長）、星地法師、星朗法師、星楷法師、星爍法師'],
+    ['西單', '星妙法師（組長）、星鈺法師、星默法師、星永法師、星霖法師'],
+    ['寶鐘鼓', '星爍法師'],
+    ['直播組', '星弘法師'],
+    ['報到處', '星璽法師、星澄法師、星實法師、麗雅'],
+    ['當日戒牒處理', '星照法師（總）、星璽法師、星澄法師'],
+    ['司儀', '智雯、傳文'],
+    ['拍照', '法曠'],
+    ['事務組撤場', '星實法師（總）、玉榕、瓊慧、姵慈、美英及現場義工'],
+  ],
+  notes: [
+    '與會法師請帶三衣、海青',
+    '戒會日期：115 年 10 月 27 日',
+    '戒會地點：【板樹體育館】新北市溪福溪城路 90 號',
+    '戒會行程：請詳見附件行程表',
+    '未盡事宜得以隨時調整補充',
+  ],
+  /** 公告原件上的出班迎請名單。系統「出班迎請」分頁那一份是可以改的，
+   *  兩份不一樣時要讓人看見，不要默默各說各話。 */
+  welcome: {
+    M: ['陸永富', '卓敬善', '徐正樺', '許谷鳴', '郭俊德', '辜慶忠', '陳中智'],
+    F: ['陳嘉瑩', '王瑞平', '黃惠玲', '鍾鳳玲', '楊婕', '林雅庭', '陳碧卿'],
+  },
+  from: '寶嚴禪寺 菩薩戒戒會 啟',
+  schedule: [
+    ['07:20 ~ 07:40', '報到'],
+    ['07:40 ~ 08:20', '宣達注意事項、搭衣教學、演禮'],
+    ['08:30 ~ 10:00', '講戒開示'],
+    ['10:30 ~ 12:00', '菩薩戒正受'],
+    ['12:00 ~ 13:30', '午齋／休息'],
+    ['13:30 ~ 14:30', '燃香供佛'],
+    ['14:50 ~ 16:20', '講戒開示'],
+    ['16:40 ~ 18:10', '傳授幽冥戒'],
+    ['18:10 ~ 18:20', '回向'],
+    ['18:20 ~ 18:40', '頒發戒碟、大合照、師長付囑'],   // 原件此處作「戒碟」，p1 另一處作「戒牒」，照原件不改
+  ],
+};
+
 /* ===================== 狀態 ===================== */
 var state = {
   settings: { title: '', classes: [] },
@@ -52,6 +111,10 @@ var state = {
   guideConflicts: [],  // 引禮師那邊因他人同時修改而沒套用的
   rebound: [],         // 來源名單順序變動後，自動跟回正確的人的分班
   lostAssigns: [],     // 分班存著、但來源名單已經找不到這個人
+  history: null,       // 異動明細（null＝還沒載過；載過才有陣列）
+  historyTotal: 0,
+  historyAt: '',       // 這份快照是後端幾點給的
+  historyErr: '',      // 上一次載入失敗的原因
 };
 var pw = '';
 var operator = '';
@@ -115,6 +178,9 @@ function backendUrl() {
   return '';
 }
 
+/* 這幾個動作不會寫入，不必讓異動紀錄作廢 */
+var HISTORY_SAFE = { load: 1, ping: 1, rev: 1, history: 1 };
+
 /* ===================== 後端 ===================== */
 function api(action, payload, tries) {
   return rawApi(action, payload, tries).catch(function (e) {
@@ -161,6 +227,9 @@ function rawApi(action, payload, tries) {
         err.code = data.code;
         throw err;
       }
+      // 寫入成功 → 手上的異動紀錄快照過期了。在這裡統一作廢，
+      // 日後新增任何寫入動作都不必再記得各自去清一次。
+      if (!HISTORY_SAFE[action]) { state.history = null; state.historyAt = ''; }
       return data;
     })
     .catch(function (e) {
@@ -941,29 +1010,96 @@ function setWelcome(next) {
   if (!welcomeDirty()) pendingWelcome = null;
 }
 
+/**
+ * 出班迎請名單上的這個人，在菩薩戒分班表裡排到哪一班。
+ * 公告上只有姓名，所以只能用姓名對；同名多人而且班別不一致時不自行判斷，兩個都列出來讓人決定。
+ * 回 { state:'ok'|'many'|'none', list:[{key,fm,cls,head}] }
+ */
+function welcomeClassOf(name) {
+  /* 空白全部拿掉再比，不只是前後：公告上兩個字的名字會補成「楊　婕」，那是排版，不是名字。 */
+  function keyOf(x) { return String(x == null ? '' : x).replace(/[\s　]/g, ''); }
+  var n = keyOf(name);
+  if (!n) return { state: 'blank', list: [] };
+  var hits = state.people.filter(function (p) { return p.vow === '菩薩戒' && keyOf(p.name) === n; });
+  if (!hits.length) return { state: 'none', list: [] };
+  var list = hits.map(function (p) {
+    return { key: p.key, fm: p.fm, cls: clsOf(p.key), head: headOf(p.key) };
+  });
+  var seen = {};
+  list.forEach(function (x) { seen[x.cls || ''] = 1; });
+  return { state: (list.length > 1 && Object.keys(seen).length > 1) ? 'many' : 'ok', list: list };
+}
+
+/** 出班迎請那一位的班別籤。回 {html, ok} —— ok＝已經排好班了 */
+function welcomeTag(name) {
+  var r = welcomeClassOf(name);
+  if (r.state === 'blank') return { html: '', ok: false };
+  if (r.state === 'none') return { html: '<span class="wtag bad">名單查無此人</span>', ok: false };
+  if (r.state === 'many') {
+    return { html: '<span class="wtag bad">同名 ' + r.list.length + ' 人：' +
+      esc(r.list.map(function (x) { return (x.fm || '無法名') + ' ' + (x.cls || '未分班'); }).join('／')) +
+      '</span>', ok: false };
+  }
+  var x = r.list[0];
+  if (!x.cls) return { html: '<span class="wtag warn">未分班</span>', ok: false };
+  if (x.cls === EXCLUDE) return { html: '<span class="wtag bad">已排除</span>', ok: false };
+  return { html: '<span class="wtag ok">' + esc(x.cls) + (x.head ? ' ★班首' : '') + '</span>', ok: true };
+}
+
 function renderWelcome() {
   var box = $('#welcomeBody');
   if (!box) return;
   var w = welcomeList();
   var ro = isGuest();
+  var done = 0, total = 0;
   function col(sexKey, title, cls) {
     var arr = w[sexKey];
     return '<div class="wcol"><h3 class="' + cls + '">' + title + '　<span class="muted small">' + arr.length + ' 位</span></h3>' +
       '<ol class="wlist">' + arr.map(function (n, i) {
+        var t = welcomeTag(n);
+        if (String(n || '').trim()) { total++; if (t.ok) done++; }
         return '<li><span class="wn">' + (i + 1) + '</span>' +
           '<input class="wIn" type="text" data-s="' + sexKey + '" data-i="' + i + '" value="' + esc(n) + '"' +
           (ro ? ' disabled' : '') + '>' +
           (ro ? '' :
             '<button class="wup" data-s="' + sexKey + '" data-i="' + i + '" title="往上">↑</button>' +
             '<button class="wdel" data-s="' + sexKey + '" data-i="' + i + '" title="刪掉這一位">✕</button>') +
+          t.html +
           '</li>';
       }).join('') + '</ol>' +
       (ro ? '' : '<button class="btn wadd" data-s="' + sexKey + '">＋ 新增一位</button>') +
       '</div>';
   }
-  box.innerHTML = '<div class="wgrid">' + col('M', '男眾', 'e') + col('F', '女眾', 'w') + '</div>' +
-    '<p class="muted small">共 ' + (w.M.length + w.F.length) + ' 位。' +
-    (ro ? '訪客只能查看。' : '改完按右下角「儲存分班」一起存。空白的名字儲存時會自動略過。') + '</p>';
+  var grid = '<div class="wgrid">' + col('M', '男眾', 'e') + col('F', '女眾', 'w') + '</div>';
+  box.innerHTML = grid +
+    '<p class="muted small" id="welcomeSum">' + welcomeSumHtml(w.M.length + w.F.length, done, total) + '</p>';
+}
+
+function welcomeSumHtml(count, done, total) {
+  return '共 ' + count + ' 位，其中 <b>' + done + '</b> 位已排好班' +
+    (total - done > 0 ? '、<b>' + (total - done) + '</b> 位未分班或對不到人（紅色、橘色那幾個）' : '') + '。' +
+    (isGuest() ? '訪客只能查看。' : '改完按右下角「儲存分班」一起存。空白的名字儲存時會自動略過。');
+}
+
+/**
+ * 只重算班別籤與統計，不重畫整塊。
+ * 改名字時若整塊 renderWelcome()，打到一半的游標會跳掉；
+ * 但不更新又會把「改之前那個人」的班別掛在新名字旁邊，那是會被當真的錯誤資訊。
+ */
+function refreshWelcomeTags() {
+  var done = 0, total = 0, count = 0;
+  $$('#welcomeBody .wlist li').forEach(function (li) {
+    var inp = li.querySelector('.wIn');
+    if (!inp) return;
+    count++;
+    var t = welcomeTag(inp.value);
+    if (String(inp.value || '').replace(/^[\s　]+|[\s　]+$/g, '')) { total++; if (t.ok) done++; }
+    var old = li.querySelector('.wtag');
+    if (old) old.parentNode.removeChild(old);
+    if (t.html) li.insertAdjacentHTML('beforeend', t.html);
+  });
+  var sum = $('#welcomeSum');
+  if (sum) sum.innerHTML = welcomeSumHtml(count, done, total);
 }
 
 function renderBulk() {
@@ -1102,6 +1238,162 @@ function renderNotice() {
   });
 }
 
+/* ===================== 公告・執事 ===================== */
+function renderRef() {
+  var box = $('#refBody');
+  if (!box) return;
+  function rows(list) {
+    return list.map(function (r) {
+      return '<tr><th>' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>';
+    }).join('');
+  }
+
+  // 公告上的出班迎請 vs 系統現在那一份，不一樣要講
+  var live = welcomeList();
+  /* 比對前要跟 saveWelcome 一樣先 trim、濾掉空白列——
+     不然按一下「＋新增一位」產生的空列就會誤報「名單已被改過」。 */
+  function cleanList(a) {
+    return (a || []).map(function (x) { return String(x == null ? '' : x).replace(/^[\s　]+|[\s　]+$/g, ''); })
+      .filter(Boolean);
+  }
+  var diff = (NOTICE.welcome.M.join(',') !== cleanList(live.M).join(',')) ||
+             (NOTICE.welcome.F.join(',') !== cleanList(live.F).join(','));
+
+  function wcol(arr, title) {
+    return '<div class="wcol"><h3>' + title + '　<span class="muted small">' + arr.length + ' 位</span></h3>' +
+      '<ol class="reflist">' + arr.map(function (n) {
+        return '<li>' + esc(n) + welcomeTag(n).html + '</li>';
+      }).join('') + '</ol></div>';
+  }
+
+  box.innerHTML =
+    '<div class="card refcard">' +
+      '<div class="refhead"><span class="reftag">' + esc(NOTICE.tag) + '</span>' +
+        '<h2>公　告</h2><span class="muted">' + esc(NOTICE.date) + '</span></div>' +
+      '<p class="refsubj"><b>主旨：</b>' + esc(NOTICE.subject) + '</p>' +
+      '<h3 class="refh">在家菩薩戒三師</h3>' +
+      '<table class="reftable"><tbody>' + rows(NOTICE.three) + '</tbody></table>' +
+      '<h3 class="refh">法會執事</h3>' +
+      '<table class="reftable"><tbody>' + rows(NOTICE.duty) + '</tbody></table>' +
+    '</div>' +
+
+    '<div class="card refcard">' +
+      '<h3 class="refh">出班迎請</h3>' +
+      '<p class="muted small">公告原件上的名單。後面的班別是系統依姓名對出來的，方便當天找人。</p>' +
+      '<div class="wgrid">' + wcol(NOTICE.welcome.M, '男眾') + wcol(NOTICE.welcome.F, '女眾') + '</div>' +
+      (diff ? '<p class="refwarn">⚠ 系統「出班迎請」分頁那一份已經被改過，和這張公告的名單不一樣。' +
+              '以誰為準請自行確認。</p>' : '') +
+    '</div>' +
+
+    '<div class="card refcard">' +
+      '<h3 class="refh">注意事項</h3>' +
+      '<ol class="refnotes">' + NOTICE.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ol>' +
+      '<p class="refwarn">※ 系統註記（不是公告內容）：地點那一行的「溪福溪城路」寫法與一般看到的板樹體育館地址不同，' +
+        '印給戒子之前請先確認。</p>' +
+      '<p class="reffrom">' + esc(NOTICE.from) + '</p>' +
+    '</div>' +
+
+    '<div class="card refcard">' +
+      '<h3 class="refh">戒會行程（公告附件）</h3>' +
+      '<table class="reftable sched"><tbody>' +
+        NOTICE.schedule.map(function (r) {
+          return '<tr><th>' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>';
+        }).join('') +
+      '</tbody></table>' +
+      '<p class="muted small">以上依「' + esc(NOTICE.date) + ' ' + esc(NOTICE.tag) +
+        '」公告逐字謄錄。公告若再更新，請通知維護者改這一頁。</p>' +
+    '</div>';
+}
+
+/* ===================== 異動紀錄 ===================== */
+var historyLoading = null;   // 正在飛的那一個請求，避免連點分頁重複打後端
+
+function loadHistory() {
+  if (historyLoading) return historyLoading;
+  state.historyErr = '';
+  var info = $('#logInfo');
+  if (info) info.textContent = '載入中…';
+  historyLoading = api('history', { limit: 2000 }).then(function (d) {
+    state.history = d.changes || [];
+    state.historyTotal = d.total || 0;
+    state.historyAt = d.serverTime || '';
+    renderHistory();
+  }).catch(function (e) {
+    /* 絕對不可以把 state.history 從 null 變成 []。
+       那會讓畫面改口說「系統累計 0 筆」——在一個用來查「有沒有人動我的分班」的頁面上
+       謊報「沒人改過」，而且 == null 的守門一旦失效，切分頁也不會再自動重試。 */
+    state.historyErr = e.message || String(e);
+    renderHistory();
+  }).then(function () { historyLoading = null; });
+  return historyLoading;
+}
+
+function renderHistory() {
+  var box = $('#logBody'), info = $('#logInfo');
+  if (!box) return;
+  var all = state.history;
+  if (all == null) {
+    box.innerHTML = '';
+    if (info) {
+      info.textContent = state.historyErr
+        ? '載入失敗：' + state.historyErr + '（這不代表沒有紀錄，請按「重新載入」再試一次）'
+        : '還沒載入。';
+    }
+    return;
+  }
+
+  // 經手人下拉（照出現過的人）
+  var sel = $('#logBy');
+  if (sel) {
+    var keep = sel.value, seen = {}, names = [];
+    all.forEach(function (c) { if (c.by && !seen[c.by]) { seen[c.by] = 1; names.push(c.by); } });
+    sel.innerHTML = '<option value="">經手人：全部</option>' +
+      names.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+    if (keep && seen[keep]) sel.value = keep;
+  }
+
+  var q = ($('#logQ') ? $('#logQ').value : '').trim();
+  var fBy = $('#logBy') ? $('#logBy').value : '';
+  var fWhat = $('#logWhat') ? $('#logWhat').value : '';
+  var list = all.filter(function (c) {
+    if (fBy && c.by !== fBy) return false;
+    if (fWhat && c.what !== fWhat) return false;
+    if (q && [c.target, c.by, c.field, c.from, c.to, c.what, c.key].join(' ').indexOf(q) < 0) return false;
+    return true;
+  });
+
+  var SHOW = 300;
+  var more = Math.max(0, (state.historyTotal || 0) - all.length);   // 這次沒載進來的更早紀錄
+  box.innerHTML = list.slice(0, SHOW).map(function (c) {
+    var arrow = '<span class="lgfrom">' + esc(c.from || '（空白）') + '</span>' +
+                '<span class="lgarrow">→</span>' +
+                '<span class="lgto">' + esc(c.to || '（空白）') + '</span>';
+    return '<div class="lgrow">' +
+      '<div class="lgtop"><span class="lgat">' + esc(c.at) + '</span>' +
+        '<span class="lgby">' + esc(c.by || '（未留名）') + '</span>' +
+        '<span class="lgwhat">' + esc(c.what) + '</span></div>' +
+      '<div class="lgmain"><b>' + esc(c.target) + '</b>　' +
+        '<span class="muted">' + esc(c.field) + '</span>　' + arrow + '</div>' +
+      '</div>';
+  }).join('') ||
+    /* 沒找到時不可以只講「沒有紀錄」——若還有更早的沒載進來，那句話等於謊報「沒人改過」。 */
+    ('<p class="empty">這次載入的 ' + all.length + ' 筆裡沒有符合條件的。' +
+      (more ? '<br>系統另外還有 <b>' + more + '</b> 筆更早的紀錄沒有載進來，要查更早的請直接開資料庫試算表「異動明細」分頁。' : '') +
+      '</p>');
+
+  if (info) {
+    /* 重新載入失敗、但手上還有上一次的快照時，照樣顯示舊資料是對的，
+       但一定要講「這次沒載到」，否則使用者會以為看到的是最新狀況。 */
+    info.textContent = (state.historyErr ? '⚠ 這次重新載入失敗（' + state.historyErr + '），以下是上一次成功載入的資料。　' : '') +
+      '顯示 ' + Math.min(list.length, SHOW) + ' 筆' +
+      (list.length > SHOW ? '（符合條件 ' + list.length + ' 筆，只先顯示最近 ' + SHOW + ' 筆）' : '') +
+      '，本次載入最近 ' + all.length + ' 筆' +
+      (more ? '（更早的 ' + more + ' 筆未載入）' : '') +
+      '，系統累計 ' + state.historyTotal + ' 筆。' +
+      (state.historyAt ? '　資料時間 ' + state.historyAt + '（不會自己更新，改完要按「重新載入」）' : '');
+  }
+}
+
 /** 右上角顯示還有誰在線上 */
 function renderWho() {
   var el = $('#online');
@@ -1120,6 +1412,7 @@ function renderAll() {
   renderBoard();
   renderGuides();
   renderWelcome();
+  renderRef();
   renderWarnings();
   renderTable();
   renderSave();
@@ -1433,6 +1726,38 @@ function buildPrint(kind) {
   } else if (kind === 'todo') {
     html = '<div class="sheet"><h2>未分班名單</h2><p class="sheetsub">' + headLine() + '　共 ' + A.none.length + ' 人</p>' +
       rosterTable(A.none, { phone: opts.phone, sign: false }) + '</div>';
+  } else if (kind === 'welcome') {
+    /* 出班迎請名單：男女兩份，含各自分在哪一班。班別是依姓名對出來的，不是另外存的。 */
+    var w = welcomeList();
+    function wtable(arr, title) {
+      var h = '<h3 class="wsub">' + esc(title) + '（' + arr.filter(function (n) { return String(n || '').trim(); }).length + ' 位）</h3>' +
+        '<table class="pr"><thead><tr><th class="ctr">序</th><th>姓名</th><th>法名</th>' +
+        '<th class="ctr">班別</th><th class="ctr">班首</th><th>備註</th></tr></thead><tbody>';
+      var n = 0;
+      arr.forEach(function (name) {
+        if (!String(name || '').trim()) return;
+        n++;
+        var r = welcomeClassOf(name);
+        var x = r.list[0] || {};
+        var cls = r.state === 'none' ? '—' : (r.state === 'many' ? '同名多人' : (x.cls || '未分班'));
+        var memo = r.state === 'none' ? '分班名單查無此人'
+                 : r.state === 'many' ? r.list.map(function (y) { return (y.fm || '無法名') + '→' + (y.cls || '未分班'); }).join('／')
+                 : (x.cls ? '' : '尚未分班');
+        h += '<tr><td class="ctr">' + n + '</td><td>' + esc(name) + '</td>' +
+          '<td>' + esc(r.state === 'ok' ? (x.fm || '—') : '—') + '</td>' +
+          '<td class="ctr">' + esc(cls) + '</td>' +
+          '<td class="ctr">' + (r.state === 'ok' && x.head ? '★' : '') + '</td>' +
+          '<td>' + esc(memo) + '</td></tr>';
+      });
+      if (!n) h += '<tr><td colspan="6" class="ctr">（無）</td></tr>';
+      return h + '</tbody></table>';
+    }
+    var wstamp = new Date();
+    html = '<div class="sheet"><h2>出班迎請名單</h2><p class="sheetsub">' +
+      esc(state.settings.title || '菩薩戒') + '　菩薩戒　出班迎請　列印日期 ' +
+      wstamp.getFullYear() + '/' + (wstamp.getMonth() + 1) + '/' + wstamp.getDate() + '</p>' +
+      wtable(w.M, '男眾') + '<div style="height:10px"></div>' + wtable(w.F, '女眾') +
+      '<p class="sheetsub" style="margin-top:8px">班別為系統依姓名對應分班表所得，僅供當天找人之用。</p></div>';
   } else if (kind === 'all') {
     var ci = A.order.concat([EXCLUDE]);
     var all = scoped().slice().sort(function (a, b) {
@@ -1491,14 +1816,28 @@ function csvDump() {
 function bind() {
   on('#gateBtn', 'click', doLogin);
   on('#gatePw', 'keydown', function (e) { if (e.key === 'Enter') doLogin(); });
-  on('#gateBy', 'keydown', function (e) { if (e.key === 'Enter') $('#gatePw').focus(); });
+  on('#gateGo', 'click', confirmOperator);
+  on('#gateBy', 'keydown', function (e) { if (e.key === 'Enter') confirmOperator(); });
+  on('#gateBySel', 'keydown', function (e) { if (e.key === 'Enter') confirmOperator(); });
+  on('#gateBySel', 'change', function () {
+    var other = $('#gateBySel').value === '__other';
+    $('#gateByWrap').hidden = !other;
+    if (other) { $('#gateBy').value = ''; try { $('#gateBy').focus(); } catch (e) {} }
+  });
+  on('#gateBack', 'click', function () { pw = ''; gateReset(); try { $('#gatePw').focus(); } catch (e) {} });
 
   on('#btnLogout', 'click', function () {
     if (allDirty() && !confirm('還有 ' + dirtyLabel() + '沒儲存，確定要登出嗎？')) return;
     pw = ''; state.pending = {}; state.pendingGuides = {}; pendingWelcome = null; checked = {};
     state.conflicts = []; state.guideConflicts = []; newerRev = 0; stopPolling();
+    state.history = null; state.historyTotal = 0; state.historyAt = ''; state.historyErr = '';
+    if ($('#logBody')) $('#logBody').innerHTML = '';
+    if ($('#logQ')) $('#logQ').value = '';
+    if ($('#logWhat')) $('#logWhat').value = '';
+    if ($('#logBy')) $('#logBy').innerHTML = '<option value="">經手人：全部</option>';
+    if ($('#logInfo')) $('#logInfo').textContent = '—';
     $('#app').hidden = true; $('#gate').hidden = false;
-    $('#gatePw').value = ''; $('#gateMsg').textContent = '';
+    gateReset();
   });
 
   on('#btnReload', 'click', function () {
@@ -1530,9 +1869,13 @@ function bind() {
       var v = t.getAttribute('data-view');
       $('#viewAssign').hidden = v !== 'assign';
       $('#viewNotice').hidden = v !== 'notice';
+      $('#viewRef').hidden = v !== 'ref';
+      $('#viewLog').hidden = v !== 'log';
       $('#viewPrint').hidden = v !== 'print';
       $('#viewSettings').hidden = v !== 'settings';
       if (v === 'settings') fillSettings();
+      // 異動紀錄要多打一次後端，所以切進去才載，而且只在還沒載過的時候
+      if (v === 'log' && state.history == null) loadHistory();
     });
   });
 
@@ -1660,6 +2003,8 @@ function bind() {
     var w = welcomeList();
     w[el.getAttribute('data-s')][+el.getAttribute('data-i')] = el.value;
     setWelcome(w); renderSave();
+    refreshWelcomeTags();   // 籤要跟著新名字走，不可以停在舊名字算出來的班別
+    renderRef();            // 公告頁那段「和公告不一樣」的比對也要同步
   });
   on('#welcomeBody', 'click', function (e) {
     if (isGuest()) return;
@@ -1683,6 +2028,27 @@ function bind() {
       var tmp = w[s2][i2 - 1]; w[s2][i2 - 1] = w[s2][i2]; w[s2][i2] = tmp;
       setWelcome(w); renderWelcome(); renderSave(); return;
     }
+  });
+
+  ['#logQ', '#logBy', '#logWhat'].forEach(function (sel) {
+    on(sel, 'input', function () { renderHistory(); });
+    on(sel, 'change', function () { renderHistory(); });
+  });
+  on('#btnLogReload', 'click', function () {
+    var b = $('#btnLogReload');
+    if (b) b.disabled = true;
+    loadHistory().then(function () { if (b) b.disabled = false; });
+  });
+
+  on('#btnPrintWelcome', 'click', function () {
+    printPick = 'welcome';
+    $$('.tab').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-view') === 'print'); });
+    $('#viewAssign').hidden = true; $('#viewNotice').hidden = true;
+    $('#viewRef').hidden = true; $('#viewLog').hidden = true;
+    $('#viewSettings').hidden = true; $('#viewPrint').hidden = false;
+    $$('.pick').forEach(function (x) { x.classList.toggle('on', x.getAttribute('data-print') === 'welcome'); });
+    $('#btnDoPrint').disabled = false;
+    buildPrint('welcome');
   });
 
   on('#guideToggle', 'click', function () { guideOpen = !guideOpen; renderGuides(); });
@@ -1727,6 +2093,7 @@ function bind() {
       '戒會名稱': $('#setTitle').value.trim(),
       '班別清單': $('#setClasses').value.trim(),
       '引禮師名單': $('#setGuides').value.trim(),
+      '經手人名單': $('#setStaff').value.trim(),
       '男眾保留班別': $('#setMaleOnly').value.trim(),
     };
     if ($('#setPw').value.trim()) patch['密碼'] = $('#setPw').value.trim();
@@ -1779,6 +2146,7 @@ function fillSettings() {
   $('#setTitle').value = state.settings.title || '';
   $('#setClasses').value = (state.settings.classes || []).join(',');
   $('#setGuides').value = (state.settings.guides || []).join(',');
+  $('#setStaff').value = (state.settings.staff || []).join(',');
   $('#setMaleOnly').value = (state.settings.maleOnly || []).join(',');
   $('#setPw').value = '';
   $('#setGuestPw').value = '';
@@ -1800,7 +2168,7 @@ function fillSettings() {
 
   // 訪客只能看：設定欄位一律唯讀
   var ro = isGuest();
-  ['#setTitle', '#setClasses', '#setGuides', '#setMaleOnly', '#setPw', '#setGuestPw', '#setGuestUntil'].forEach(function (s) {
+  ['#setTitle', '#setClasses', '#setGuides', '#setStaff', '#setMaleOnly', '#setPw', '#setGuestPw', '#setGuestUntil'].forEach(function (s) {
     var el = $(s); if (el) el.disabled = ro;
   });
   ['#btnSaveSet', '#btnSaveGuest', '#btnCloseGuest'].forEach(function (s) {
@@ -1808,10 +2176,83 @@ function fillSettings() {
   });
 }
 
+/** 回到第一步（只問密碼）。登出與「換一組密碼」都走這裡。 */
+function gateReset() {
+  operator = '';
+  $('#gateStep1').hidden = false;
+  $('#gateStep2').hidden = true;
+  $('#gateSelWrap').hidden = true;
+  $('#gateByWrap').hidden = false;
+  if ($('#gateBySel')) $('#gateBySel').innerHTML = '';
+  $('#gateBy').value = '';
+  $('#gatePw').value = '';
+  $('#gateMsg').textContent = '';
+}
+
+/** 密碼過了之後問「您是哪一位」。名單有人就用下拉，名單空的就維持自由輸入。 */
+function askOperator() {
+  // 訪客不必指名：他什麼都改不了，紀錄上也不會有他
+  if (isGuest()) { operator = '訪客'; enterApp(); return; }
+
+  var list = (state.settings.staff || []).filter(Boolean);
+  var sel = $('#gateBySel');
+  if (list.length) {
+    sel.innerHTML = '<option value="">— 請選擇 —</option>' +
+      list.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('') +
+      '<option value="__other">名單裡沒有我…</option>';
+    $('#gateSelWrap').hidden = false;
+    $('#gateByWrap').hidden = true;
+  } else {
+    // 名單還沒設就不要把人鎖在門外
+    $('#gateSelWrap').hidden = true;
+    $('#gateByWrap').hidden = false;
+  }
+  // 共用同一台電腦：絕對不預填上一個人的名字，否則改動會記到別人頭上
+  $('#gateBy').value = '';
+  $('#gateStep1').hidden = true;
+  $('#gateStep2').hidden = false;
+  $('#gateMsg').textContent = '';
+  try { (list.length ? sel : $('#gateBy')).focus(); } catch (e) {}
+}
+
+function confirmOperator() {
+  var list = (state.settings.staff || []).filter(Boolean);
+  var v = '';
+  if (list.length) {
+    var picked = $('#gateBySel').value;
+    if (picked === '__other') v = cleanPw($('#gateBy').value);
+    else v = cleanPw(picked);
+  } else {
+    v = cleanPw($('#gateBy').value);
+  }
+  if (!v) { $('#gateMsg').textContent = '請選擇或輸入經手人'; return; }
+  operator = v;
+  $('#gateMsg').textContent = '';
+  enterApp();
+}
+
+function enterApp() {
+  try {
+    /* load() 發出去的時候 operator 還是空字串，後端的 presenceList 無從排除自己，
+       所以回來的 online 可能含「上一次的自己」。這裡補扣掉，免得右上角顯示
+       「同時在線：釋星慕」給釋星慕自己看。 */
+    state.online = (state.online || []).filter(function (o) { return o.who !== operator; });
+    fillClassSelects();
+    $('#gate').hidden = true;
+    $('#app').hidden = false;
+    renderAll();
+    startPolling();
+  } catch (err) {
+    $('#gateMsg').textContent = '畫面出錯：' + (err.message || err);
+    $('#gate').hidden = false;
+    $('#app').hidden = true;
+    if (window.console) console.error(err);
+  }
+}
+
 function doLogin() {
   var btn = $('#gateBtn');
   if (btn.disabled) return;
-  operator = cleanPw($('#gateBy').value);
   pw = cleanPw($('#gatePw').value);
   if (!pw) { $('#gateMsg').textContent = '請輸入密碼'; return; }
   btn.disabled = true;
@@ -1828,18 +2269,12 @@ function doLogin() {
       (s >= 12 ? '（第一次叫醒後端比較久，請再等一下）' : ''));
   }, 500);
   function stopTimer() { clearInterval(doLogin._t); setHint(''); }
-  // 注意：load() 成功後才進畫面；enter() 自己的錯不要被當成密碼錯
+  // 注意：load() 成功後才問經手人；畫面自己的錯不要被當成密碼錯
   load().then(function () {
     try {
-      fillClassSelects();
-      $('#gate').hidden = true;
-      $('#app').hidden = false;
-      renderAll();
-      startPolling();
+      askOperator();
     } catch (err) {
       $('#gateMsg').textContent = '畫面出錯：' + (err.message || err);
-      $('#gate').hidden = false;
-      $('#app').hidden = true;
       if (window.console) console.error(err);
     }
   }).catch(function (e) {

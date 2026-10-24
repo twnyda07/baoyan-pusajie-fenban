@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>菩薩戒分班系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261024c">
+<link rel="stylesheet" href="style.css?v=20261024d">
 </head>
 <body>
 
@@ -14,15 +14,29 @@
   <div class="gate-card">
     <h1 class="gate-title">菩薩戒分班系統</h1>
     <p class="gate-sub" id="gateSub">寶嚴山寶嚴禪寺</p>
-    <label class="field">
-      <span>經手人（您的稱呼）</span>
-      <input id="gateBy" type="text" autocomplete="off" placeholder="例：知客組 某某">
-    </label>
-    <label class="field">
-      <span>密碼</span>
-      <input id="gatePw" type="password" autocomplete="off" placeholder="請輸入密碼">
-    </label>
-    <button id="gateBtn" class="btn primary wide">進入系統</button>
+    <div id="gateStep1">
+      <label class="field">
+        <span>密碼</span>
+        <input id="gatePw" type="password" autocomplete="off" placeholder="請輸入密碼">
+      </label>
+      <button id="gateBtn" class="btn primary wide">進入系統</button>
+    </div>
+
+    <!-- 第二步：選自己是哪一位。分班的每一次改動都會記下經手人，所以不預填上一個人， -->
+    <!-- 共用同一台電腦時才不會把紀錄掛到別人頭上。 -->
+    <div id="gateStep2" hidden>
+      <p class="gate-who">請選擇<b>您是哪一位</b>。分班、班首、引禮師的每一次改動都會記下經手人。</p>
+      <label class="field" id="gateSelWrap" hidden>
+        <span>經手人</span>
+        <select id="gateBySel"></select>
+      </label>
+      <label class="field" id="gateByWrap">
+        <span>經手人（您的稱呼）</span>
+        <input id="gateBy" type="text" autocomplete="off" placeholder="例：知客組 某某">
+      </label>
+      <button id="gateGo" class="btn primary wide">開始作業</button>
+      <button id="gateBack" class="btn ghost wide">← 換一組密碼</button>
+    </div>
     <p id="gateHint" class="gate-hint"></p>
     <p id="gateMsg" class="gate-msg"></p>
     <p class="gate-note">工作人員密碼可分班；訪客密碼看到的資料一樣，但只能查看與列印。<br>訪客帳號僅在戒會期間開放，期間過後會自動停用。</p>
@@ -47,6 +61,8 @@
   <nav class="tabs no-print">
     <button class="tab on" data-view="assign">分班作業</button>
     <button class="tab" data-view="notice">出班迎請</button>
+    <button class="tab" data-view="ref">公告・執事</button>
+    <button class="tab" data-view="log">異動紀錄</button>
     <button class="tab" data-view="print">列印</button>
     <button class="tab" data-view="settings">設定</button>
   </nav>
@@ -162,8 +178,40 @@
   <!-- ---------- 公告・執事 ---------- -->
   <section id="viewNotice" class="view" hidden>
     <h2 class="wtitle">出班迎請</h2>
-    <p class="muted small">名字可以直接改，可以新增、刪除、調順序，人數不固定。改完按右下角「儲存分班」。</p>
+    <p class="muted small">名字可以直接改，可以新增、刪除、調順序，人數不固定。改完按右下角「儲存分班」。
+      每一位後面的班別是系統<b>依姓名去分班表對出來的</b>，不是另外存的。</p>
     <div id="welcomeBody"></div>
+    <div class="no-print" style="margin-top:10px">
+      <button id="btnPrintWelcome" class="btn">列印這份名單</button>
+    </div>
+  </section>
+
+  <!-- ---------- 公告・執事 ---------- -->
+  <section id="viewRef" class="view" hidden>
+    <div id="refBody"></div>
+  </section>
+
+  <!-- ---------- 異動紀錄 ---------- -->
+  <section id="viewLog" class="view" hidden>
+    <div class="card">
+      <h2>異動紀錄</h2>
+      <p class="muted small">每一次分班、班首、引禮師、設定的改動，都記下「誰、幾點、把什麼從 A 改成 B」。
+        密碼只記「已遮蔽」，不會留明碼。</p>
+      <div class="logbar no-print">
+        <input id="logQ" class="search" type="search" placeholder="搜尋姓名、班別、經手人…" autocomplete="off">
+        <select id="logBy"><option value="">經手人：全部</option></select>
+        <select id="logWhat">
+          <option value="">動作：全部</option>
+          <option value="分班">分班</option>
+          <option value="班首連帶調整">班首連帶調整</option>
+          <option value="引禮師">引禮師</option>
+          <option value="改設定">改設定</option>
+        </select>
+        <button id="btnLogReload" class="btn ghost">重新載入</button>
+      </div>
+      <p id="logInfo" class="muted small">—</p>
+      <div id="logBody"></div>
+    </div>
   </section>
 
   <!-- ---------- 列印 ---------- -->
@@ -182,6 +230,9 @@
         </button>
         <button class="pick" data-print="all">
           <b>全體名冊</b><span>全部戒子一覽，含班別</span>
+        </button>
+        <button class="pick" data-print="welcome">
+          <b>出班迎請名單</b><span>男女兩份，含各自分在哪一班</span>
         </button>
       </div>
       <div class="pickopts">
@@ -207,6 +258,8 @@
         <input id="setMaleOnly" type="text" autocomplete="off"></label>
       <label class="field"><span>引禮師名單（逗號分隔，順序就是下拉顯示順序）</span>
         <input id="setGuides" type="text" autocomplete="off"></label>
+      <label class="field"><span>經手人名單（逗號分隔；登入時從這份挑自己是誰。<b>留空＝維持自由打字</b>）</span>
+        <input id="setStaff" type="text" autocomplete="off" placeholder="例：釋星慕,釋星量,知客組 某某"></label>
       <label class="field"><span>工作人員密碼</span><input id="setPw" type="text" autocomplete="off"></label>
       <button id="btnSaveSet" class="btn primary">儲存設定</button>
     </div>
@@ -239,7 +292,7 @@
   <div id="toast"></div>
 </div>
 
-<script src="config.js?v=20261024c"></script>
-<script src="app.js?v=20261024c"></script>
+<script src="config.js?v=20261024d"></script>
+<script src="app.js?v=20261024d"></script>
 </body>
 </html>
