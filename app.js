@@ -411,28 +411,46 @@ function rebindAssigns(raw) {
   });
 
   state.rawAssigns = raw;
-  var out = {}, rebound = [], lost = [];
+  var out = {}, rebound = [], lost = [], locked = {};
+
+  /* 第一輪：key 指到的人就是當初存的人 —— 這是「現在正確、不容懷疑」的那些，
+     包含使用者剛剛才重新排好的。先全部鎖住，後面任何重新對應都不准蓋掉它們。 */
   Object.keys(raw).forEach(function (k) {
+    var a = raw[k], here = byKey[k];
+    if (here && here.name === a.name) { out[k] = a; locked[k] = 1; }
+  });
+
+  /* 第二輪：剩下的才是位移或失聯的。只能填進「沒被鎖住」的位子。 */
+  Object.keys(raw).forEach(function (k) {
+    if (locked[k]) return;
     var a = raw[k];
-    var here = byKey[k];
-    // 流水號指到的那個人就是當初存的人 → 沒有位移，照舊
-    if (here && here.name === a.name) { out[k] = a; return; }
 
     var hit = idx[(a.vow || '') + '|' + (a.name || '') + '|' + (a.fm || '')] || [];
     if (hit.length !== 1) hit = idxLoose[(a.vow || '') + '|' + (a.name || '')] || [];
     if (hit.length === 1) {
       var p = hit[0];
-      if (p.key === k) { out[k] = a; return; }
-      // 找到同一個人、但他現在的流水號不同 → 把分班跟過去
+      if (locked[p.key]) {
+        // 這個人已經有一筆「現在正確」的分班（通常就是使用者剛重新排的）。
+        // 舊的這筆是殘留，絕對不可以蓋過去。
+        lost.push({ key: k, name: a.name, fm: a.fm, cls: a.cls, vow: a.vow,
+                    reason: '這個人已有較新的分班（' + (out[p.key].cls || '未分班') + '），這筆是舊殘留' });
+        return;
+      }
+      var prev = out[p.key];
+      if (prev && String(prev.at || '') >= String(a.at || '')) {
+        lost.push({ key: k, name: a.name, fm: a.fm, cls: a.cls, vow: a.vow, reason: '同一人有多筆舊資料，保留較新的那筆' });
+        return;
+      }
       out[p.key] = { key: p.key, vow: p.vow, src: p.src, seq: p.seq, name: p.name, fm: p.fm,
                      cls: a.cls, head: a.head, note: a.note, at: a.at, by: a.by, _from: k };
+      rebound = rebound.filter(function (r) { return r.to !== p.key; });
       rebound.push({ from: k, to: p.key, name: a.name, cls: a.cls });
       return;
     }
-    // 找不到人（或同名多人不敢猜）→ 不套用到任何人身上，列出來讓人決定
     lost.push({ key: k, name: a.name, fm: a.fm, cls: a.cls, vow: a.vow,
                 reason: hit.length > 1 ? '同名多人，不敢自行判斷' : '來源名單已查無此人' });
   });
+
   state.rebound = rebound;
   state.lostAssigns = lost;
   return out;
