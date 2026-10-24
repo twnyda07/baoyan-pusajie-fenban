@@ -564,10 +564,11 @@ function dirtyCount() { return Object.keys(state.pending).length; }
 
 /* 分班與引禮師是兩份待存清單。所有「要不要攔住使用者」的判斷都必須兩份一起看，
    只看其中一份就會把另一份靜默丟掉，或讓它殘留到下一個登入的人畫面上。 */
-function allDirty() { return dirtyCount() + guideDirtyCount(); }
+function allDirty() { return dirtyCount() + guideDirtyCount() + welcomeDirty(); }
 function dirtyLabel() {
   var n = dirtyCount(), g = guideDirtyCount();
-  return (n ? n + ' 筆分班' : '') + (n && g ? '、' : '') + (g ? g + ' 班引禮師' : '');
+  var w = welcomeDirty();
+  return [n ? n + ' 筆分班' : '', g ? g + ' 班引禮師' : '', w ? '出班迎請名單' : ''].filter(Boolean).join('、');
 }
 
 var EXCLUDE = '✕ 排除';
@@ -921,6 +922,50 @@ function renderGuides() {
     : '<p class="muted small">一位法師排兩班時，選單會標出他已經在哪一班，但系統不會替您擋下來。改完記得按右下角「儲存分班」。</p>');
 }
 
+/* ---------- 出班迎請 ---------- */
+/* 人數不固定，男女各一份，可以自由增減。還沒儲存的放在 pendingWelcome，
+   跟分班一樣「不按儲存就不會進資料庫」，也跟著「還原未存變更」一起丟掉。 */
+var pendingWelcome = null;   // null＝沒有未存變更；否則 {M:[], F:[]}
+
+function welcomeList() {
+  if (pendingWelcome) return pendingWelcome;
+  return { M: (state.settings.welcomeM || []).slice(), F: (state.settings.welcomeF || []).slice() };
+}
+function welcomeDirty() {
+  if (!pendingWelcome) return 0;
+  var a = pendingWelcome, b = { M: state.settings.welcomeM || [], F: state.settings.welcomeF || [] };
+  return (a.M.join(',') !== b.M.join(',') || a.F.join(',') !== b.F.join(',')) ? 1 : 0;
+}
+function setWelcome(next) {
+  pendingWelcome = next;
+  if (!welcomeDirty()) pendingWelcome = null;
+}
+
+function renderWelcome() {
+  var box = $('#welcomeBody');
+  if (!box) return;
+  var w = welcomeList();
+  var ro = isGuest();
+  function col(sexKey, title, cls) {
+    var arr = w[sexKey];
+    return '<div class="wcol"><h3 class="' + cls + '">' + title + '　<span class="muted small">' + arr.length + ' 位</span></h3>' +
+      '<ol class="wlist">' + arr.map(function (n, i) {
+        return '<li><span class="wn">' + (i + 1) + '</span>' +
+          '<input class="wIn" type="text" data-s="' + sexKey + '" data-i="' + i + '" value="' + esc(n) + '"' +
+          (ro ? ' disabled' : '') + '>' +
+          (ro ? '' :
+            '<button class="wup" data-s="' + sexKey + '" data-i="' + i + '" title="往上">↑</button>' +
+            '<button class="wdel" data-s="' + sexKey + '" data-i="' + i + '" title="刪掉這一位">✕</button>') +
+          '</li>';
+      }).join('') + '</ol>' +
+      (ro ? '' : '<button class="btn wadd" data-s="' + sexKey + '">＋ 新增一位</button>') +
+      '</div>';
+  }
+  box.innerHTML = '<div class="wgrid">' + col('M', '男眾', 'e') + col('F', '女眾', 'w') + '</div>' +
+    '<p class="muted small">共 ' + (w.M.length + w.F.length) + ' 位。' +
+    (ro ? '訪客只能查看。' : '改完按右下角「儲存分班」一起存。空白的名字儲存時會自動略過。') + '</p>';
+}
+
 function renderBulk() {
   var n = Object.keys(checked).filter(function (k) { return checked[k]; }).length;
   $('#bulkbar').hidden = n === 0 || isGuest();
@@ -929,12 +974,13 @@ function renderBulk() {
 }
 
 function renderSave() {
-  var n = dirtyCount(), g = guideDirtyCount(), tot = n + g;
+  var n = dirtyCount(), g = guideDirtyCount(), wv = welcomeDirty(), tot = n + g + wv;
   $('#btnSave').disabled = tot === 0 || isGuest();
   $('#btnRevert').disabled = tot === 0;
   $('#savebar').className = 'savebar no-print' + (tot ? ' hot' : '');
   $('#saveHint').textContent = tot
-    ? ('有 ' + (n ? n + ' 筆分班' : '') + (n && g ? '、' : '') + (g ? g + ' 班引禮師' : '') + '還沒儲存')
+    ? ([n ? '有 ' + n + ' 筆分班' : '', g ? g + ' 班引禮師' : '', wv ? '出班迎請名單' : '']
+         .filter(Boolean).join('、') + ' 還沒儲存')
     : '尚無未儲存的變更';
   $('#saveHint').className = tot ? '' : 'muted';
 }
@@ -1073,6 +1119,7 @@ function renderAll() {
   renderStats();
   renderBoard();
   renderGuides();
+  renderWelcome();
   renderWarnings();
   renderTable();
   renderSave();
@@ -1094,6 +1141,20 @@ function fillClassSelects() {
 }
 
 /* ===================== 儲存 ===================== */
+/** 出班迎請存檔。空白名字自動略過，不會存進去。 */
+function saveWelcome() {
+  if (!welcomeDirty()) return Promise.resolve(null);
+  var w = welcomeList();
+  var clean = function (a) { return a.map(function (x) { return String(x || '').trim(); }).filter(Boolean); };
+  var M = clean(w.M), F = clean(w.F);
+  return api('saveSettings', { settings: { '出班迎請-男': M.join(','), '出班迎請-女': F.join(',') } })
+    .then(function (d) {
+      state.settings.welcomeM = M; state.settings.welcomeF = F;
+      pendingWelcome = null;
+      return d;
+    });
+}
+
 /** 引禮師存檔。跟分班一樣只送改過的那幾班，衝突不覆蓋。 */
 function saveGuides() {
   var keys = Object.keys(state.pendingGuides);
@@ -1135,12 +1196,22 @@ function saveGuides() {
 
 function save() {
   var keys = Object.keys(state.pending);
-  // 只改了引禮師：一樣要鎖按鈕（擋連點）、一樣要接錯誤（失敗不可以無聲）
+  // 只改了引禮師或出班迎請：一樣要鎖按鈕（擋連點）、一樣要接錯誤（失敗不可以無聲）
   if (!keys.length) {
+    if (!guideDirtyCount() && welcomeDirty()) {
+      $('#btnSave').disabled = true; $('#btnSave').textContent = '儲存中…';
+      return saveWelcome().then(function () {
+        toast('已儲存出班迎請名單');
+        return load(true).then(function () { newerRev = 0; renderAll(); });
+      }).catch(function (e) {
+        toast(e.message || '出班迎請儲存失敗', true); throw e;
+      }).then(function () { $('#btnSave').textContent = '儲存分班'; renderSave(); },
+              function () { $('#btnSave').textContent = '儲存分班'; renderSave(); });
+    }
     if (!guideDirtyCount()) return Promise.resolve();
     $('#btnSave').disabled = true;
     $('#btnSave').textContent = '儲存中…';
-    return saveGuides().then(function (d) {
+    return saveWelcome().then(function () { return saveGuides(); }).then(function (d) {
       if (!d) return;
       var conflicts = d.conflicts || [];
       var cleanG = !conflicts.length;
@@ -1231,8 +1302,9 @@ function save() {
     }
   }).then(function () {
     // 分班寫完才寫引禮師，兩者都走各自的衝突偵測
-    if (!guideDirtyCount()) return;
-    return saveGuides().then(function (g) {
+    if (!guideDirtyCount() && !welcomeDirty()) return;
+    return saveWelcome().then(function () { return saveGuides(); }).then(function (g) {
+      if (!g) return load(true).then(function () { renderAll(); });
       if (!g) return;
       if ((g.conflicts || []).length) {
         toast('引禮師有 ' + g.conflicts.length + ' 班剛被別人改過，沒有覆蓋過去', true);
@@ -1423,7 +1495,7 @@ function bind() {
 
   on('#btnLogout', 'click', function () {
     if (allDirty() && !confirm('還有 ' + dirtyLabel() + '沒儲存，確定要登出嗎？')) return;
-    pw = ''; state.pending = {}; state.pendingGuides = {}; checked = {};
+    pw = ''; state.pending = {}; state.pendingGuides = {}; pendingWelcome = null; checked = {};
     state.conflicts = []; state.guideConflicts = []; newerRev = 0; stopPolling();
     $('#app').hidden = true; $('#gate').hidden = false;
     $('#gatePw').value = ''; $('#gateMsg').textContent = '';
@@ -1457,6 +1529,7 @@ function bind() {
       t.classList.add('on');
       var v = t.getAttribute('data-view');
       $('#viewAssign').hidden = v !== 'assign';
+      $('#viewNotice').hidden = v !== 'notice';
       $('#viewPrint').hidden = v !== 'print';
       $('#viewSettings').hidden = v !== 'settings';
       if (v === 'settings') fillSettings();
@@ -1582,6 +1655,36 @@ function bind() {
   });
   on('#btnBulkClear', 'click', function () { checked = {}; renderTable(); });
 
+  on('#welcomeBody', 'input', function (e) {
+    var el = e.target.closest('.wIn'); if (!el || isGuest()) return;
+    var w = welcomeList();
+    w[el.getAttribute('data-s')][+el.getAttribute('data-i')] = el.value;
+    setWelcome(w); renderSave();
+  });
+  on('#welcomeBody', 'click', function (e) {
+    if (isGuest()) return;
+    var w = welcomeList(), t;
+    if ((t = e.target.closest('.wadd'))) {
+      w[t.getAttribute('data-s')].push('');
+      setWelcome(w); renderWelcome(); renderSave();
+      var ins = $$('#welcomeBody .wIn[data-s="' + t.getAttribute('data-s') + '"]');
+      if (ins.length) ins[ins.length - 1].focus();
+      return;
+    }
+    if ((t = e.target.closest('.wdel'))) {
+      var sx = t.getAttribute('data-s'), ix = +t.getAttribute('data-i');
+      var nm = w[sx][ix];
+      if (nm && !confirm('刪掉「' + nm + '」？')) return;
+      w[sx].splice(ix, 1); setWelcome(w); renderWelcome(); renderSave(); return;
+    }
+    if ((t = e.target.closest('.wup'))) {
+      var s2 = t.getAttribute('data-s'), i2 = +t.getAttribute('data-i');
+      if (i2 <= 0) return;
+      var tmp = w[s2][i2 - 1]; w[s2][i2 - 1] = w[s2][i2]; w[s2][i2] = tmp;
+      setWelcome(w); renderWelcome(); renderSave(); return;
+    }
+  });
+
   on('#guideToggle', 'click', function () { guideOpen = !guideOpen; renderGuides(); });
   on('#guideBody', 'change', function (e) {
     var sel = e.target.closest('select.guideSel');
@@ -1595,7 +1698,7 @@ function bind() {
     var tot = dirtyCount() + guideDirtyCount();
     if (!tot) return;
     if (!confirm('把還沒儲存的 ' + tot + ' 筆變更丟掉？（含分班與引禮師）')) return;
-    state.pending = {}; state.pendingGuides = {};
+    state.pending = {}; state.pendingGuides = {}; pendingWelcome = null;
     state.conflicts = []; state.guideConflicts = [];
     renderAll(); toast('已還原');
   });

@@ -130,6 +130,25 @@ select{width:auto; min-width:7em}
 .cell.west .cname{color:var(--west)}
 .cell.zero .cnum{color:var(--line-2)}
 
+/* ---------- 出班迎請 ---------- */
+.wtitle{font-size:21px;margin:.2em 0 .1em}
+.wgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:.8em 0}
+.wcol{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.wcol h3{font-size:17px;margin:0 0 .5em}
+.wcol h3.e{color:var(--east)}.wcol h3.w{color:var(--west)}
+.wlist{list-style:none;margin:0 0 .6em;padding:0}
+.wlist li{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.wlist .wn{width:1.8em;text-align:right;font-size:13px;color:var(--ink-2);flex:0 0 auto}
+.wlist .wIn{flex:1;min-width:0;font:inherit;font-size:16px;padding:.35em .5em;
+  border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink)}
+.wlist .wIn:focus{border-color:var(--accent);background:#fff;outline:none}
+.wlist .wIn:disabled{background:#f1ece4;color:var(--ink-2)}
+.wlist .wup,.wlist .wdel{flex:0 0 auto;border:1px solid var(--line);background:var(--card);
+  border-radius:8px;cursor:pointer;font-size:15px;color:var(--ink-2);min-width:34px;min-height:34px}
+.wlist .wup:hover{background:#f3eee6}
+.wlist .wdel:hover{background:#fbe8e5;color:var(--bad);border-color:#edc3bc}
+.wadd{width:100%;font-size:15px}
+
 /* ---------- 引禮師指派 ---------- */
 .guidebox{background:var(--card); border:1px solid var(--line); border-radius:12px;
           padding:10px 14px; margin:0 0 14px}
@@ -401,6 +420,10 @@ table.pr tr.isHead td{font-weight:700; background:#faf4e3}
   .guidegrid{grid-template-columns:1fr}                  /* 手機一列一班，下拉才按得到 */
   .guiderow{padding:.5em .7em}
   .guiderow select{min-height:46px; font-size:16px}
+  .wgrid{grid-template-columns:1fr; gap:10px}
+  .wlist .wIn{min-height:44px; font-size:16px}
+  .wlist .wup,.wlist .wdel{min-width:44px; min-height:44px}
+  .wadd{min-height:46px}
   /* 訪客唯讀：控制項要一眼看得出是鎖住的，不然放大後的下拉很像可以點 */
   table.list td.c-cls select:disabled,
   table.list td.c-pnote input:disabled{background:#f1ece4; color:var(--ink-2); opacity:.75}
