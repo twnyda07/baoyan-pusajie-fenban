@@ -3,7 +3,7 @@
 (function () {
 'use strict';
 
-var BUILD = '20261024d';
+var BUILD = '20261024e';
 
 /* ===================== 基礎 ===================== */
 var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -850,7 +850,18 @@ function visiblePeople() {
   });
   var s = $('#sort').value;
   var coll = function (a, b) { return String(a).localeCompare(String(b), 'zh-Hant'); };
+
+  /* 看「某一班」的名單時，班首一律排第一位——跟各班名冊、分班總表的印法一致。
+     會套用在兩種情況：篩選只看某一班，或是依班別排序（那時是同班之內排第一）。
+     其他情況（例如依年齡看全部）不動，否則使用者選的排序會被莫名其妙打亂。 */
+  var headFirst = (fCls && fCls !== '__none' && fCls !== EXCLUDE) || s === 'cls';
+  var rank = function (p) { return headOf(p.key) ? 0 : 1; };
+
   list.sort(function (a, b) {
+    if (headFirst && s !== 'cls') {
+      var hr = rank(a) - rank(b);
+      if (hr) return hr;
+    }
     if (s === 'age') return (a.age == null ? 999 : a.age) - (b.age == null ? 999 : b.age) || coll(a.name, b.name);
     if (s === 'ageD') return (b.age == null ? -1 : b.age) - (a.age == null ? -1 : a.age) || coll(a.name, b.name);
     if (s === 'fm') return coll(a.fm, b.fm);
@@ -859,7 +870,8 @@ function visiblePeople() {
       var ci = allClasses().concat([EXCLUDE]);
       var ia = ci.indexOf(clsOf(a.key)), ib = ci.indexOf(clsOf(b.key));
       if (ia < 0) ia = 99; if (ib < 0) ib = 99;
-      return ia - ib || coll(a.name, b.name);
+      // 先照班別順序，同一班裡班首排最前面，再依姓名
+      return ia - ib || (rank(a) - rank(b)) || coll(a.name, b.name);
     }
     if (a.src !== b.src) return a.src === '線上' ? -1 : 1;
     return (parseInt(a.seq, 10) || 0) - (parseInt(b.seq, 10) || 0);
@@ -1138,7 +1150,7 @@ function renderNotice() {
       '</ul><span class="muted small">這幾筆還留在您的待存清單裡。確認要用您的版本就再按一次「儲存分班」，要用對方的就按「還原未存變更」。</span></div>';
   }
 
-  if (state.rebound.length || state.lostAssigns.length) {
+  if (!isGuest() && (state.rebound.length || state.lostAssigns.length)) {
     html += '<div class="nrow bad"><b>報名名單的順序變動過，系統已經自動把分班跟回原本的人。</b><ul>';
     if (state.rebound.length) {
       html += '<li><b>' + state.rebound.length + ' 筆</b>已自動跟回正確的人：' +
@@ -2253,6 +2265,11 @@ function enterApp() {
 function doLogin() {
   var btn = $('#gateBtn');
   if (btn.disabled) return;
+  /* 共用裝置的保險：一登入就是新的人，絕不可以繼承上一個人沒存的工作。
+     正常情況登出時已經清過，這裡是攔住「登出被取消卻又換人登入」那條縫。 */
+  state.pending = {}; state.pendingGuides = {}; pendingWelcome = null; checked = {};
+  state.conflicts = []; state.guideConflicts = [];
+  state.history = null; state.historyTotal = 0; state.historyAt = ''; state.historyErr = '';
   pw = cleanPw($('#gatePw').value);
   if (!pw) { $('#gateMsg').textContent = '請輸入密碼'; return; }
   btn.disabled = true;
