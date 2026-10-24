@@ -145,6 +145,8 @@ select{width:auto; min-width:7em}
 .guiderow .gcls{font-weight:700; min-width:3.6em; font-size:15px}
 .guiderow .gnum{display:block; font-size:11px; font-weight:400; color:var(--ink-2)}
 .guiderow select{flex:1; min-width:0; font-size:15px}
+.cell .cmale{display:block; font-size:11px; color:var(--ink-2); margin-top:.1em}
+.cell .cmale.bad{color:#fff; background:var(--bad); border-radius:5px; font-weight:700; padding:.05em 0}
 .cell .cguide{display:block; font-size:12px; color:var(--east); margin-top:.1em}
 .cell .cguide.none{color:var(--line-2)}
 
@@ -178,6 +180,7 @@ tr.dirty:hover{background:#fbf3dd}
 .badge{display:inline-block; font-size:12px; padding:.1em .45em; border-radius:5px; margin-left:.35em; vertical-align:2px}
 .badge.fm{background:#fdf0d8; color:var(--warn); border:1px solid #e6d3a8}
 .badge.dup{background:#fbe8e5; color:var(--bad); border:1px solid #edc3bc}
+.badge.male{background:var(--bad); color:#fff; border:1px solid var(--bad); font-weight:700}
 .badge.data{background:#eceff3; color:var(--ink-2); border:1px solid var(--line-2)}
 .badge.vow{font-weight:700; margin-left:0}
 .badge.vow.ps{background:#eceef7; color:#44497a; border:1px solid #d3d7e8}

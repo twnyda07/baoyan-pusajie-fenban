@@ -50,6 +50,8 @@ var state = {
   guides: {},          // 班別 -> {cls, who, at, by}（已存在後端的引禮師指派）
   pendingGuides: {},   // 班別 -> {who, baseAt}（還沒存的）
   guideConflicts: [],  // 引禮師那邊因他人同時修改而沒套用的
+  rebound: [],         // 來源名單順序變動後，自動跟回正確的人的分班
+  lostAssigns: [],     // 分班存著、但來源名單已經找不到這個人
 };
 var pw = '';
 var operator = '';
@@ -388,6 +390,54 @@ function computeWarnings() {
 }
 
 /* ===================== 分班值 ===================== */
+/* ---------- 讓分班跟著「人」走，而不是跟著流水號走 ----------
+
+   報名名單會增刪列，那是正常作業。但流水號是「位置編號」，一有增刪就整批位移，
+   而分班原本用「戒別-來源-流水號」當 key，於是別人改名單就會讓班別滑到別人身上。
+
+   分班表裡本來就存了當初的「姓名」，那份才是真正的意圖。
+   所以每次載入都重新對應一次：姓名（加法名輔助）對得上誰，這筆分班就是誰的。
+   同名同法名有兩個人時不猜，維持原樣並標示出來讓人決定。                     */
+function rebindAssigns(raw) {
+  var byKey = {};
+  state.people.forEach(function (p) { byKey[p.key] = p; });
+
+  // 以「戒別｜姓名｜法名」建索引；法名空白的另外用「戒別｜姓名」兜底
+  var idx = {}, idxLoose = {};
+  function push(m, k, p) { (m[k] = m[k] || []).push(p); }
+  state.people.forEach(function (p) {
+    push(idx, p.vow + '|' + p.name + '|' + (p.fm || ''), p);
+    push(idxLoose, p.vow + '|' + p.name, p);
+  });
+
+  state.rawAssigns = raw;
+  var out = {}, rebound = [], lost = [];
+  Object.keys(raw).forEach(function (k) {
+    var a = raw[k];
+    var here = byKey[k];
+    // 流水號指到的那個人就是當初存的人 → 沒有位移，照舊
+    if (here && here.name === a.name) { out[k] = a; return; }
+
+    var hit = idx[(a.vow || '') + '|' + (a.name || '') + '|' + (a.fm || '')] || [];
+    if (hit.length !== 1) hit = idxLoose[(a.vow || '') + '|' + (a.name || '')] || [];
+    if (hit.length === 1) {
+      var p = hit[0];
+      if (p.key === k) { out[k] = a; return; }
+      // 找到同一個人、但他現在的流水號不同 → 把分班跟過去
+      out[p.key] = { key: p.key, vow: p.vow, src: p.src, seq: p.seq, name: p.name, fm: p.fm,
+                     cls: a.cls, head: a.head, note: a.note, at: a.at, by: a.by, _from: k };
+      rebound.push({ from: k, to: p.key, name: a.name, cls: a.cls });
+      return;
+    }
+    // 找不到人（或同名多人不敢猜）→ 不套用到任何人身上，列出來讓人決定
+    lost.push({ key: k, name: a.name, fm: a.fm, cls: a.cls, vow: a.vow,
+                reason: hit.length > 1 ? '同名多人，不敢自行判斷' : '來源名單已查無此人' });
+  });
+  state.rebound = rebound;
+  state.lostAssigns = lost;
+  return out;
+}
+
 function clsOf(key) {
   if (key in state.pending) return state.pending[key].cls;
   return (state.assigns[key] && state.assigns[key].cls) || '';
@@ -476,6 +526,20 @@ function classOfGuide(who) {
 }
 
 function guideRoster() { return (state.settings.guides || []).slice(); }
+
+/* ---------- 男眾保留班別 ---------- */
+/** 哪些班只保留給男眾（來自設定，預設東1–東4）。東西的意義是使用者指定的，不是推定的。 */
+function maleOnlyClasses() { return (state.settings.maleOnly || []).slice(); }
+function isMaleOnly(cls) { return cls && maleOnlyClasses().indexOf(cls) >= 0; }
+
+/** 這個人被排進男眾保留班、但不是男眾 → 回傳提示字；沒問題回空字串。
+    性別空白也要報，因為那代表「不知道」，不可以當成沒事。 */
+function maleOnlyIssue(p) {
+  var c = clsOf(p.key);
+  if (!isMaleOnly(c)) return '';
+  if (p.sex === 'M') return '';
+  return c + ' 保留男眾，這位是' + (p.sex === 'F' ? '女眾' : '性別未填');
+}
 function guideDirtyCount() { return Object.keys(state.pendingGuides).length; }
 
 function dirtyCount() { return Object.keys(state.pending).length; }
@@ -500,6 +564,7 @@ function load(fresh) {
     state.people = normalizeSource(d.source || {});
     state.assigns = {};
     (d.assigns || []).forEach(function (a) { if (a && a.key) state.assigns[a.key] = a; });
+    state.assigns = rebindAssigns(state.assigns);
     state.guides = {};
     (d.guides || []).forEach(function (g) { if (g && g.key) state.guides[g.key] = g; });
     state.rev = d.rev || 0;
@@ -584,6 +649,11 @@ function renderBoard() {
         var g = guideOf(c);
         return '<span class="cguide' + (g ? '' : ' none') + '">' + (g ? '引 ' + esc(g) : '未排引禮師') + '</span>';
       })()) +
+      (isMaleOnly(c) ? (function () {
+        var bad = scoped().filter(function (p) { return clsOf(p.key) === c && p.sex !== 'M'; }).length;
+        return '<span class="cmale' + (bad ? ' bad' : '') + '">' +
+          (bad ? '⚠ 男眾班有 ' + bad + ' 位非男眾' : '男眾班') + '</span>';
+      })() : '') +
       '</button>';
   }
   var east = [], west = [], other = [];
@@ -610,6 +680,16 @@ function renderWarnings() {
   var w = state.warn;
   var box = $('#warnBox');
   var html = '';
+  // 排錯班放最前面：這是當下就會造成現場出錯的事，比資料品質問題急
+  var moBad = scoped().filter(function (p) { return maleOnlyIssue(p); });
+  if (moBad.length) {
+    html += '<h3>⚠ 有 ' + moBad.length + ' 位被排進男眾保留班（' + esc(maleOnlyClasses().join('、')) + '）</h3><ul>';
+    moBad.forEach(function (p) {
+      html += '<li><span class="hit">' + esc(p.name) + '</span>（' + esc(p.fm || '無法名') + '）<span class="sep">—</span> ' +
+        esc(clsOf(p.key)) + '，' + (p.sex === 'F' ? '女眾' : '性別未填') + '</li>';
+    });
+    html += '</ul>';
+  }
   if (w.personDup.length) {
     html += '<h3>⚠ 同一個戒別裡疑似重複報名 ' + w.personDup.length + ' 組</h3><ul>';
     w.personDup.forEach(function (g) {
@@ -647,6 +727,7 @@ function renderWarnings() {
   }
   if (!html) { box.hidden = true; box.innerHTML = ''; return; }
   var sum = [];
+  if (moBad.length) sum.push('排進男眾班 ' + moBad.length + ' 位');
   if (w.personDup.length) sum.push('疑似重複報名 ' + w.personDup.length + ' 組');
   if (w.fmDup.length) sum.push('法名重複 ' + w.fmDup.length + ' 組');
   if (w.bothVow.length) sum.push('兩戒都受 ' + w.bothVow.length + ' 人');
@@ -670,6 +751,7 @@ function visiblePeople() {
     if (fWarn === 'fm' && !p.wFm) return false;
     if (fWarn === 'dup' && !p.wDup) return false;
     if (fWarn === 'both' && !p.wBoth) return false;
+    if (fWarn === 'male' && !maleOnlyIssue(p)) return false;
     if (fWarn === 'data' && !p.wData) return false;
     if (q) {
       // 搜尋也要吃得到報名帳號：信眾只記得自己帳號的名字時找得到人
@@ -735,6 +817,8 @@ function renderTable() {
   var rows = list.map(function (p, i) {
     var cur = clsOf(p.key);
     var badges = '';
+    var mo = maleOnlyIssue(p);
+    if (mo) badges += '<span class="badge male" title="' + esc(mo) + '">排錯班</span>';
     if (p.wDup) badges += '<span class="badge dup" title="同一個戒別裡出現兩筆，疑似重複報名">重複報名</span>';
     if (p.wFm) badges += '<span class="badge fm" title="有別人也用這個法名">法名重複</span>';
     if (p.wData) badges += '<span class="badge data" title="' + esc(p.wData) + '">待確認</span>';
@@ -854,6 +938,28 @@ function renderNotice() {
       '</ul><span class="muted small">這幾筆還留在您的待存清單裡。確認要用您的版本就再按一次「儲存分班」，要用對方的就按「還原未存變更」。</span></div>';
   }
 
+  if (state.rebound.length || state.lostAssigns.length) {
+    html += '<div class="nrow bad"><b>報名名單的順序變動過，系統已經自動把分班跟回原本的人。</b><ul>';
+    if (state.rebound.length) {
+      html += '<li><b>' + state.rebound.length + ' 筆</b>已自動跟回正確的人：' +
+        esc(state.rebound.slice(0, 6).map(function (r) { return r.name + '→' + (r.cls || '未分班'); }).join('、')) +
+        (state.rebound.length > 6 ? ' …等' : '') + '</li>';
+    }
+    if (state.lostAssigns.length) {
+      html += '<li><b>' + state.lostAssigns.length + ' 筆</b>找不到對應的人，<b>沒有套用到任何人身上</b>：' +
+        esc(state.lostAssigns.slice(0, 6).map(function (r) { return r.name + '（' + r.reason + '）'; }).join('、')) +
+        (state.lostAssigns.length > 6 ? ' …等' : '') + '</li>';
+    }
+    html += '</ul><span class="muted small">畫面上顯示的已經是修正後的結果。' +
+      (state.rebound.length && !isGuest()
+        ? '按右邊的鈕把修正寫回系統，之後就不會再跑掉。'
+        : '') + '</span>' +
+      (state.rebound.length && !isGuest()
+        ? ' <button id="btnFixBind" class="btn">把修正寫回系統（' + state.rebound.length + ' 筆）</button>'
+        : '') +
+      '</div>';
+  }
+
   if (state.guideConflicts.length) {
     html += '<div class="nrow bad"><b>有 ' + state.guideConflicts.length +
       ' 班的引禮師在您編輯時被別人改過，您的指派沒有覆蓋過去：</b><ul>' +
@@ -875,6 +981,55 @@ function renderNotice() {
 
   box.innerHTML = html;
   box.hidden = !html;
+  on('#btnFixBind', 'click', function () {
+    if (isGuest() || !state.rebound.length) return;
+    if (!confirm('把 ' + state.rebound.length + ' 筆分班寫回到正確的人身上？\n' +
+                 '（班別內容不變，只是改成跟著人走）')) return;
+
+    /* 分兩階段，而且順序不可以顛倒。
+       純位移時「舊 key」往往同時是別人的「新 key」，若先刪再寫，
+       後端依序處理到寫入時那一列已經不在，baseAt 對不上就整批失敗——
+       但刪除已經生效，人就不見了。所以：
+         第一階段：把最終狀態全部寫進去（完全不刪，失敗也不會掉資料）
+         第二階段：確認零衝突，才清掉沒人用到的舊列                      */
+    var finalKeys = {};
+    Object.keys(state.assigns).forEach(function (k) { finalKeys[k] = 1; });
+    var writes = Object.keys(state.assigns).map(function (k) {
+      var a = state.assigns[k], raw = state.rawAssigns[k];
+      return { key: k, vow: a.vow, src: a.src, seq: a.seq, name: a.name, fm: a.fm,
+               cls: a.cls, head: !!a.head, note: a.note || '',
+               baseAt: raw ? (raw.at || '') : '' };
+    });
+    var stale = Object.keys(state.rawAssigns).filter(function (k) { return !finalKeys[k]; });
+
+    var btn = $('#btnFixBind');
+    if (btn) { btn.disabled = true; btn.textContent = '寫回中…'; }
+    api('saveAssign', { items: writes }).then(function (d) {
+      var c = (d.conflicts || []).length;
+      if (c) {
+        // 有衝突就停在這裡，一列都不刪，資料完整保留
+        toast('有 ' + c + ' 筆剛被別人改過，為了安全沒有繼續，也沒有刪除任何資料。請重新整理後再試一次。', true);
+        return load(true).then(function () { fillClassSelects(); renderAll(); });
+      }
+      if (!stale.length) {
+        toast('已寫回 ' + (d.saved || 0) + ' 筆，分班現在跟著人走了');
+        return load(true).then(function () { newerRev = 0; fillClassSelects(); renderAll(); });
+      }
+      var dels = stale.map(function (k) {
+        var o = state.rawAssigns[k];
+        return { key: k, vow: o.vow, src: o.src, seq: o.seq, name: o.name, fm: o.fm,
+                 cls: '', head: false, note: '', baseAt: o.at || '' };
+      });
+      return api('saveAssign', { items: dels }).then(function (d2) {
+        toast('已寫回 ' + (d.saved || 0) + ' 筆，清掉 ' + (d2.removed || 0) + ' 筆沒人用到的舊列');
+        return load(true).then(function () { newerRev = 0; fillClassSelects(); renderAll(); });
+      });
+    }).catch(function (e) {
+      toast(e.message || '寫回失敗，沒有刪除任何資料', true);
+      var b = $('#btnFixBind'); if (b) { b.disabled = false; b.textContent = '把修正寫回系統'; }
+    });
+  });
+
   on('#btnTakeNew', 'click', function () {
     if (allDirty() && !confirm('您還有 ' + dirtyLabel() + '沒儲存，載入最新會把它們丟掉。確定嗎？\n（想保留就先按取消，去按「儲存分班」）')) return;
     state.pending = {}; state.pendingGuides = {};
@@ -1319,7 +1474,25 @@ function bind() {
       if (isGuest()) { toast('訪客只能查看', true); renderTable(); return; }
       var k = sel.getAttribute('data-key');
       var lostHead = setCls(k, sel.value);
-      renderStats(); renderBoard(); renderSave(); refreshClassLabels(); renderGuides();
+      var who = state.people.filter(function (x) { return x.key === k; })[0];
+      if (who) {
+        var mo = maleOnlyIssue(who);
+        if (mo) toast('⚠ ' + who.name + '：' + mo, true);
+        /* 這個 handler 刻意不呼叫 renderTable（整張重畫會讓游標與捲動位置跑掉），
+           所以紅標要自己補上這一列，否則要等下次重畫才看得到。 */
+        var row = sel.closest('tr');
+        var note = row && row.querySelector('.c-note');
+        if (note) {
+          var old = note.querySelector('.badge.male');
+          if (old) old.parentNode.removeChild(old);
+          if (mo) {
+            var b = document.createElement('span');
+            b.className = 'badge male'; b.title = mo; b.textContent = '排錯班';
+            note.appendChild(b);
+          }
+        }
+      }
+      renderStats(); renderBoard(); renderSave(); refreshClassLabels(); renderGuides(); renderWarnings();
       var tr = sel.closest('tr');
       if (tr) {
         tr.classList.toggle('dirty', k in state.pending);
@@ -1383,9 +1556,11 @@ function bind() {
     var keys = Object.keys(checked).filter(function (k) { return checked[k]; });
     if (!keys.length) return;
     keys.forEach(function (k) { setCls(k, c); });
+    var bad = state.people.filter(function (x) { return keys.indexOf(x.key) >= 0 && maleOnlyIssue(x); });
     checked = {};
     renderAll();
-    toast('已把 ' + keys.length + ' 人指定到「' + (c || '未分班') + '」，記得按儲存');
+    toast('已把 ' + keys.length + ' 人指定到「' + (c || '未分班') + '」，記得按儲存' +
+      (bad.length ? '；⚠ 其中 ' + bad.length + ' 位不是男眾' : ''), bad.length > 0);
   });
   on('#btnBulkClear', 'click', function () { checked = {}; renderTable(); });
 
@@ -1431,6 +1606,7 @@ function bind() {
       '戒會名稱': $('#setTitle').value.trim(),
       '班別清單': $('#setClasses').value.trim(),
       '引禮師名單': $('#setGuides').value.trim(),
+      '男眾保留班別': $('#setMaleOnly').value.trim(),
     };
     if ($('#setPw').value.trim()) patch['密碼'] = $('#setPw').value.trim();
     api('saveSettings', { settings: patch }).then(function () {
@@ -1482,6 +1658,7 @@ function fillSettings() {
   $('#setTitle').value = state.settings.title || '';
   $('#setClasses').value = (state.settings.classes || []).join(',');
   $('#setGuides').value = (state.settings.guides || []).join(',');
+  $('#setMaleOnly').value = (state.settings.maleOnly || []).join(',');
   $('#setPw').value = '';
   $('#setGuestPw').value = '';
   $('#setGuestUntil').value = state.settings.guestUntil || '';
@@ -1502,7 +1679,7 @@ function fillSettings() {
 
   // 訪客只能看：設定欄位一律唯讀
   var ro = isGuest();
-  ['#setTitle', '#setClasses', '#setGuides', '#setPw', '#setGuestPw', '#setGuestUntil'].forEach(function (s) {
+  ['#setTitle', '#setClasses', '#setGuides', '#setMaleOnly', '#setPw', '#setGuestPw', '#setGuestUntil'].forEach(function (s) {
     var el = $(s); if (el) el.disabled = ro;
   });
   ['#btnSaveSet', '#btnSaveGuest', '#btnCloseGuest'].forEach(function (s) {

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>菩薩戒分班系統 · 寶嚴山寶嚴禪寺</title>
-<link rel="stylesheet" href="style.css?v=20261020e">
+<link rel="stylesheet" href="style.css?v=20261024a">
 </head>
 <body>
 
@@ -46,6 +46,7 @@
 
   <nav class="tabs no-print">
     <button class="tab on" data-view="assign">分班作業</button>
+    <button class="tab" data-view="notice">公告・執事</button>
     <button class="tab" data-view="print">列印</button>
     <button class="tab" data-view="settings">設定</button>
   </nav>
@@ -105,7 +106,7 @@
       <select id="fSrc"><option value="">來源：全部</option><option value="線上">線上</option><option value="紙本">紙本</option></select>
       <select id="fSex"><option value="">性別：全部</option><option value="M">男眾</option><option value="F">女眾</option></select>
       <select id="fCls"><option value="">班別：全部</option><option value="__none">未分班</option></select>
-      <select id="fWarn"><option value="">警示：全部</option><option value="fm">法名重複</option><option value="dup">疑似重複報名</option><option value="both">兩戒都受</option><option value="data">資料待確認</option></select>
+      <select id="fWarn"><option value="">警示：全部</option><option value="fm">法名重複</option><option value="dup">疑似重複報名</option><option value="both">兩戒都受</option><option value="male">排進男眾班</option><option value="data">資料待確認</option></select>
       <select id="sort">
         <option value="src">排序：來源＋流水號</option>
         <option value="age">年齡（小→大）</option>
@@ -158,6 +159,15 @@
     </div>
   </section>
 
+  <!-- ---------- 公告・執事 ---------- -->
+  <section id="viewNotice" class="view" hidden>
+    <div class="noticebar no-print">
+      <input id="nq" class="search" type="search" placeholder="搜尋法師或戒子姓名，看他被排在哪一組…" autocomplete="off">
+      <span id="nqHit" class="muted small"></span>
+    </div>
+    <div id="noticeBody"></div>
+  </section>
+
   <!-- ---------- 列印 ---------- -->
   <section id="viewPrint" class="view" hidden>
     <div class="printpick no-print">
@@ -195,6 +205,8 @@
       <label class="field"><span>戒會名稱</span><input id="setTitle" type="text" autocomplete="off"></label>
       <label class="field"><span>班別清單（逗號分隔，順序就是顯示順序）</span>
         <input id="setClasses" type="text" autocomplete="off"></label>
+      <label class="field"><span>男眾保留班別（逗號分隔；女眾或性別空白排進來會出警示，但不會被擋下）</span>
+        <input id="setMaleOnly" type="text" autocomplete="off"></label>
       <label class="field"><span>引禮師名單（逗號分隔，順序就是下拉顯示順序）</span>
         <input id="setGuides" type="text" autocomplete="off"></label>
       <label class="field"><span>工作人員密碼</span><input id="setPw" type="text" autocomplete="off"></label>
@@ -229,7 +241,7 @@
   <div id="toast"></div>
 </div>
 
-<script src="config.js?v=20261020e"></script>
-<script src="app.js?v=20261020e"></script>
+<script src="config.js?v=20261024a"></script>
+<script src="app.js?v=20261024a"></script>
 </body>
 </html>
